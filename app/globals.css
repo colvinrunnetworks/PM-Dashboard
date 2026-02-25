@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy-950: #0a0f1e;
+  --color-navy-900: #0d1424;
+  --color-navy-800: #111827;
+  --color-navy-700: #1a2540;
+  --color-navy-600: #243054;
+  --color-surface-1: #111827;
+  --color-surface-2: #1a2035;
+  --color-surface-3: #1f2a45;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background-color: #0a0f1e;
+}
+
+body {
+  background-color: #0a0f1e;
+  color: #e2e8f0;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #111827;
+}
+::-webkit-scrollbar-thumb {
+  background: #1a2540;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #243054;
+}
+
+*:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* ── Print styles ─────────────────────────────────────────────────────────── */
+@media print {
+  /* Hide the sidebar and print-only-hidden elements */
+  aside,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Let main fill the full page */
+  body,
+  html {
+    background: white !important;
+    color: black !important;
+  }
+
+  main {
+    overflow: visible !important;
+  }
+
+  /* Print-specific text overrides */
+  .print-black {
+    color: black !important;
+  }
+
+  /* Avoid page breaks inside table rows */
+  tr,
+  .print-no-break {
+    break-inside: avoid;
+  }
+}
