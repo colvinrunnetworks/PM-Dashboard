@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FolderKanban, Settings, Shield, AlertTriangle, CalendarClock, GanttChart, Printer, Users } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Settings, Shield, AlertTriangle, CalendarClock, GanttChart, Printer, Users, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAttentionCount, useTimelineBeyondCount } from '@/lib/useAttentionCount';
 
@@ -48,6 +48,12 @@ const NAV_ITEMS: NavItem[] = [
     href: '/workload',
     label: 'Workload',
     icon: <Users className="h-4 w-4" />,
+    exact: true,
+  },
+  {
+    href: '/pi',
+    label: 'SAFe Dashboard',
+    icon: <Target className="h-4 w-4" />,
     exact: true,
   },
   {

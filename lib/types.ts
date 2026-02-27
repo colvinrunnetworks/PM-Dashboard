@@ -4,6 +4,7 @@ export interface Milestone {
   id: string;
   name: string;
   description: string | null;
+  url: string;
   targetDate: string | null;
   progress: number;   // 0.0 – 1.0
   status: MilestoneStatus;

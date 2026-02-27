@@ -34,11 +34,12 @@ export async function fetchPortfolio(): Promise<Team[]> {
 
 // ── Milestone types returned by /api/milestones ───────────────────────────────
 
-interface RawMilestoneNode extends Milestone {
+interface RawMilestoneNode extends Omit<Milestone, 'url'> {
   project: {
     id: string;
     name: string;
     state: string;
+    url: string;
   };
 }
 
@@ -76,9 +77,10 @@ export async function fetchMilestonesByProject(): Promise<Map<string, Milestone[
   for (const node of nodes) {
     const projectId = node.project.id;
     if (!map.has(projectId)) map.set(projectId, []);
-    // Strip the nested `project` field before storing
-    const { project: _proj, ...milestone } = node;
-    map.get(projectId)!.push(milestone as Milestone);
+    // Strip the nested `project` field; use project URL as the milestone link
+    const { project, ...rest } = node;
+    const milestone: Milestone = { ...rest, url: project.url };
+    map.get(projectId)!.push(milestone);
   }
   return map;
 }

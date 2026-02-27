@@ -17,6 +17,7 @@ const MILESTONES_QUERY = `{
         id
         name
         state
+        url
       }
     }
   }
