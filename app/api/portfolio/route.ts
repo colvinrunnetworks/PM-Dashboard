@@ -15,21 +15,10 @@ const PORTFOLIO_QUERY = `{
           state
           url
           health
-          healthUpdatedAt
           startDate
           targetDate
           progress
           lead { name }
-          issues(first: 5) {
-            nodes {
-              id
-              identifier
-              url
-              title
-              priority
-              state { name type }
-            }
-          }
         }
       }
     }
