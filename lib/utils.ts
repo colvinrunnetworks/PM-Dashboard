@@ -8,6 +8,8 @@ import type {
   PortfolioStats,
   DeadlineItem,
   CombinedDeadlineItem,
+  ProjectHealth,
+  MilestoneStatus,
 } from './types';
 
 // ── Tailwind utility merger ────────────────────────────────────────────────────
@@ -186,8 +188,6 @@ export function progressColor(progress: number): string {
 
 // ── Project health helpers ────────────────────────────────────────────────────
 
-import type { ProjectHealth } from './types';
-
 const HEALTH_CLASSES: Record<ProjectHealth, string> = {
   onTrack:  'bg-green-900/50 text-green-300 border border-green-800',
   atRisk:   'bg-yellow-900/50 text-yellow-300 border border-yellow-800',
@@ -209,8 +209,6 @@ export function healthLabel(health: ProjectHealth): string {
 }
 
 // ── Milestone status helpers ──────────────────────────────────────────────────
-
-import type { MilestoneStatus } from './types';
 
 const MILESTONE_STATUS_CLASSES: Record<MilestoneStatus, string> = {
   unstarted: 'bg-slate-800/50 text-slate-400 border border-slate-600',
