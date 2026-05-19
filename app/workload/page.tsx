@@ -149,6 +149,12 @@ function periodLabel(rows: TimesheetRow[]): string {
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
+const PLACEHOLDER_EMPLOYEES: { email: string; name: string; group: string }[] = [
+  { email: 'chris.hartline', name: 'Chris Hartline', group: 'Staff' },
+  { email: 'taylor.morse',   name: 'Taylor Morse',   group: 'Staff' },
+  { email: 'dan.wilson',     name: 'Dan Wilson',     group: 'Staff' },
+];
+
 function emptyByCategory(): Record<Category, number> {
   return { direct: 0, overhead: 0, bd: 0, fa: 0, ird: 0, bp: 0, pto: 0, sick: 0 };
 }
@@ -665,13 +671,32 @@ export default function BillableHoursPage() {
 
   const trendData = useMemo(() => (filteredRows.length ? buildTrendData(filteredRows) : []), [filteredRows]);
 
-  const { people, weeks, totalHours, totalDirect, avgUtil } = useMemo(
+  const { people: csvPeople, weeks, totalHours, totalDirect, avgUtil } = useMemo(
     () =>
       filteredRows.length
         ? buildStats(filteredRows, 'all')
         : { people: [], weeks: [], totalHours: 0, totalDirect: 0, avgUtil: 0 },
     [filteredRows]
   );
+
+  const people = useMemo(() => {
+    const existing = new Set(csvPeople.map((p) => p.email));
+    const placeholders: PersonStats[] = PLACEHOLDER_EMPLOYEES
+      .filter((p) => !existing.has(p.email))
+      .map((p) => ({
+        email: p.email,
+        name: p.name,
+        group: p.group,
+        byCategory: emptyByCategory(),
+        byProject: [],
+        byWeek: [],
+        totalHours: 0,
+        directHours: 0,
+        leaveHours: 0,
+        utilization: 0,
+      }));
+    return [...csvPeople, ...placeholders];
+  }, [csvPeople]);
 
   const period = useMemo(() => (rows ? periodLabel(rows) : ''), [rows]);
 
