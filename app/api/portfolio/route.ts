@@ -45,8 +45,9 @@ export async function GET() {
     });
 
     if (!res.ok) {
+      const body = await res.text();
       return NextResponse.json(
-        { error: `Linear API failed: ${res.status} ${res.statusText}` },
+        { error: `Linear API failed: ${res.status} ${res.statusText}`, body },
         { status: res.status }
       );
     }
