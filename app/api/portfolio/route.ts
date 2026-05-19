@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-// Linear GraphQL query — teams + projects + issues (no milestones — separate endpoint)
 const PORTFOLIO_QUERY = `{
   teams {
     nodes {
@@ -14,22 +13,10 @@ const PORTFOLIO_QUERY = `{
           name
           state
           url
-          health
-          healthUpdatedAt
           startDate
           targetDate
           progress
           lead { name }
-          issues(first: 5) {
-            nodes {
-              id
-              identifier
-              url
-              title
-              priority
-              state { name type }
-            }
-          }
         }
       }
     }
@@ -58,8 +45,9 @@ export async function GET() {
     });
 
     if (!res.ok) {
+      const body = await res.text();
       return NextResponse.json(
-        { error: `Linear API failed: ${res.status} ${res.statusText}` },
+        { error: `Linear API failed: ${res.status} ${res.statusText}`, body },
         { status: res.status }
       );
     }
