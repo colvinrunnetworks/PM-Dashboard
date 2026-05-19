@@ -282,9 +282,12 @@ function buildTrendData(rows: TimesheetRow[]): TrendPoint[] {
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'year';
 
 function filterRowsByPeriod(rows: TimesheetRow[], filter: PeriodFilter): TimesheetRow[] {
-  if (filter === 'year') return rows;
   const dates = rows.map((r) => r.date).sort();
   const latest = new Date(dates[dates.length - 1] + 'T00:00:00');
+  if (filter === 'year') {
+    const y = latest.getFullYear();
+    return rows.filter((r) => new Date(r.date + 'T00:00:00').getFullYear() === y);
+  }
   if (filter === 'week') {
     const monday = getMondayOf(dates[dates.length - 1]);
     return rows.filter((r) => getMondayOf(r.date) === monday);
