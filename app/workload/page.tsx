@@ -33,6 +33,17 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+function parseHours(val: string | undefined): number {
+  if (!val) return 0;
+  const trimmed = val.trim();
+  // Handle "H:MM" or "HH:MM" time format
+  if (/^\d+:\d{2}$/.test(trimmed)) {
+    const [h, m] = trimmed.split(':').map(Number);
+    return h + m / 60;
+  }
+  return parseFloat(trimmed) || 0;
+}
+
 function parseTimesheetCSV(text: string): TimesheetRow[] {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
@@ -45,9 +56,10 @@ function parseTimesheetCSV(text: string): TimesheetRow[] {
   const iGroup = idx('group');
   const iDate = idx('local_date');
   const iHours = idx('hours');
-  const iJobcode = idx('jobcode_1');
+  // Support both jobcode_1 and jobcode columns
+  const iJobcode = idx('jobcode_1') >= 0 ? idx('jobcode_1') : idx('jobcode');
 
-  if ([iUsername, iFname, iLname, iGroup, iDate, iHours, iJobcode].some((i) => i < 0)) {
+  if ([iUsername, iFname, iLname, iGroup, iDate, iHours].some((i) => i < 0)) {
     throw new Error(
       'CSV missing required columns. Expected: username, fname, lname, group, local_date, hours, jobcode_1'
     );
@@ -58,18 +70,19 @@ function parseTimesheetCSV(text: string): TimesheetRow[] {
     const line = lines[i].trim();
     if (!line) continue;
     const cols = parseCSVLine(line);
-    const hours = parseFloat(cols[iHours] ?? '0');
+    const hours = parseHours(cols[iHours]);
     if (!hours || isNaN(hours)) continue;
-    const jobcode = cols[iJobcode]?.trim();
-    if (!jobcode) continue;
+    const date = cols[iDate]?.trim() ?? '';
+    if (!date) continue;
+    const jobcode = iJobcode >= 0 ? (cols[iJobcode]?.trim() ?? '') : '';
     rows.push({
       email: cols[iUsername]?.trim() ?? '',
       fname: cols[iFname]?.trim() ?? '',
       lname: cols[iLname]?.trim() ?? '',
       group: cols[iGroup]?.trim() ?? '',
-      date: cols[iDate]?.trim() ?? '',
+      date,
       hours,
-      jobcode,
+      jobcode: jobcode || 'Overhead',
     });
   }
   return rows;
