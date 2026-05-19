@@ -257,6 +257,9 @@ interface TrendPoint {
   bd: number;
   ird: number;
   overhead: number;
+  sick: number;
+  fa: number;
+  bp: number;
 }
 
 function buildTrendData(rows: TimesheetRow[]): TrendPoint[] {
@@ -266,14 +269,17 @@ function buildTrendData(rows: TimesheetRow[]): TrendPoint[] {
   for (const row of rows.filter((r) => new Date(r.date + 'T00:00:00') <= today)) {
     const monday = getMondayOf(row.date);
     if (!weekMap.has(monday)) {
-      weekMap.set(monday, { monday, label: weekLabel(monday), direct: 0, pto: 0, bd: 0, ird: 0, overhead: 0 });
+      weekMap.set(monday, { monday, label: weekLabel(monday), direct: 0, pto: 0, bd: 0, ird: 0, overhead: 0, sick: 0, fa: 0, bp: 0 });
     }
     const w = weekMap.get(monday)!;
     const cat = classifyJobcode(row.jobcode);
     if (cat === 'direct') w.direct += row.hours;
-    else if (cat === 'pto' || cat === 'sick') w.pto += row.hours;
+    else if (cat === 'pto') w.pto += row.hours;
+    else if (cat === 'sick') w.sick += row.hours;
     else if (cat === 'bd') w.bd += row.hours;
     else if (cat === 'ird') w.ird += row.hours;
+    else if (cat === 'fa') w.fa += row.hours;
+    else if (cat === 'bp') w.bp += row.hours;
     else w.overhead += row.hours;
   }
   return [...weekMap.values()].sort((a, b) => a.monday.localeCompare(b.monday));
@@ -318,9 +324,12 @@ function getPeriodLabel(rows: TimesheetRow[], filter: PeriodFilter): string {
 const TREND_LINES: { key: keyof Omit<TrendPoint, 'monday' | 'label'>; label: string; color: string }[] = [
   { key: 'direct',   label: 'Direct (Billable)', color: CAT_COLOR.direct },
   { key: 'pto',      label: 'PTO',               color: CAT_COLOR.pto },
-  { key: 'bd',       label: 'Biz Dev',            color: CAT_COLOR.bd },
-  { key: 'ird',      label: 'IR&D',               color: CAT_COLOR.ird },
-  { key: 'overhead', label: 'Overhead',            color: CAT_COLOR.overhead },
+  { key: 'sick',     label: 'Sick',              color: CAT_COLOR.sick },
+  { key: 'bd',       label: 'Biz Dev',           color: CAT_COLOR.bd },
+  { key: 'ird',      label: 'IR&D',              color: CAT_COLOR.ird },
+  { key: 'fa',       label: 'F&A',               color: CAT_COLOR.fa },
+  { key: 'bp',       label: 'B&P',               color: CAT_COLOR.bp },
+  { key: 'overhead', label: 'Overhead',           color: CAT_COLOR.overhead },
 ];
 
 function TrendChart({ data }: { data: TrendPoint[] }) {
