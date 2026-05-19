@@ -628,12 +628,12 @@ export default function BillableHoursPage() {
   const [rows, setRows] = useState<TimesheetRow[] | null>(null);
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('year');
 
-  const trendData = useMemo(() => (rows ? buildTrendData(rows) : []), [rows]);
-
   const filteredRows = useMemo(
     () => (rows ? filterRowsByPeriod(rows, periodFilter) : []),
     [rows, periodFilter]
   );
+
+  const trendData = useMemo(() => (filteredRows.length ? buildTrendData(filteredRows) : []), [filteredRows]);
 
   const { people, weeks, totalHours, totalDirect, avgUtil } = useMemo(
     () =>
