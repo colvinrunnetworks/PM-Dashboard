@@ -417,13 +417,7 @@ function utilColor(util: number): string {
   return '#ef4444';
 }
 
-function PersonCard({
-  person,
-  weeks,
-}: {
-  person: PersonStats;
-  weeks: { monday: string; label: string }[];
-}) {
+function PersonCard({ person }: { person: PersonStats }) {
   const [expanded, setExpanded] = useState(false);
   const total = person.totalHours;
   const onLeaveOnly = total > 0 && total === person.leaveHours;
@@ -515,20 +509,6 @@ function PersonCard({
           })}
         </div>
       </div>
-
-      {weeks.length > 1 && (
-        <div className="px-4 py-2.5 border-b border-slate-700/30 flex gap-3">
-          {person.byWeek.map((w) => (
-            <div key={w.monday} className="flex-1 text-center">
-              <div className="text-xs text-slate-500 mb-1 truncate">{w.label}</div>
-              <div className="text-sm font-semibold tabular-nums text-slate-300">
-                {w.total.toFixed(0)}h
-              </div>
-              <div className="text-xs text-slate-600">{w.direct.toFixed(0)}h direct</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {person.byProject.length > 0 && (
         <div>
@@ -792,7 +772,7 @@ export default function BillableHoursPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {people.map((p) => (
-          <PersonCard key={p.email} person={p} weeks={weeks} />
+          <PersonCard key={p.email} person={p} />
         ))}
       </div>
     </div>
