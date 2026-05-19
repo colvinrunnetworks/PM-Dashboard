@@ -281,7 +281,7 @@ function PersonCard({
                 : 'bg-blue-900/40 text-blue-300'
             )}
           >
-            {person.group}
+            {person.group === 'Executives' ? 'Leadership' : person.group}
           </span>
         </div>
 
