@@ -7,7 +7,7 @@ const PORTFOLIO_QUERY = `{
       name
       key
       color
-      projects(first: 50) {
+      projects(first: 10) {
         nodes {
           id
           name
