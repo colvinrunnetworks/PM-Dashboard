@@ -260,8 +260,10 @@ interface TrendPoint {
 }
 
 function buildTrendData(rows: TimesheetRow[]): TrendPoint[] {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
   const weekMap = new Map<string, TrendPoint>();
-  for (const row of rows) {
+  for (const row of rows.filter((r) => new Date(r.date + 'T00:00:00') <= today)) {
     const monday = getMondayOf(row.date);
     if (!weekMap.has(monday)) {
       weekMap.set(monday, { monday, label: weekLabel(monday), direct: 0, pto: 0, bd: 0, ird: 0, overhead: 0 });
