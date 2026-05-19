@@ -46,7 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: '/workload',
-    label: 'Workload',
+    label: 'Billable Hours',
     icon: <Users className="h-4 w-4" />,
     exact: true,
   },
