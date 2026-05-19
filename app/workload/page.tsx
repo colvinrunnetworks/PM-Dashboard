@@ -453,7 +453,7 @@ function PersonCard({
               <div className="text-lg font-bold tabular-nums text-yellow-500">
                 {person.leaveHours.toFixed(1)}h
               </div>
-              <div className="text-xs text-slate-500">leave</div>
+              <div className="text-xs text-slate-500">PTO</div>
             </div>
           )}
         </div>
