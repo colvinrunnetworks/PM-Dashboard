@@ -247,6 +247,146 @@ function buildStats(
   };
 }
 
+// ── Trend data ────────────────────────────────────────────────────────────────
+
+interface TrendPoint {
+  monday: string;
+  label: string;
+  direct: number;
+  pto: number;
+  bd: number;
+  ird: number;
+  overhead: number;
+}
+
+function buildTrendData(rows: TimesheetRow[]): TrendPoint[] {
+  const weekMap = new Map<string, TrendPoint>();
+  for (const row of rows) {
+    const monday = getMondayOf(row.date);
+    if (!weekMap.has(monday)) {
+      weekMap.set(monday, { monday, label: weekLabel(monday), direct: 0, pto: 0, bd: 0, ird: 0, overhead: 0 });
+    }
+    const w = weekMap.get(monday)!;
+    const cat = classifyJobcode(row.jobcode);
+    if (cat === 'direct') w.direct += row.hours;
+    else if (cat === 'pto' || cat === 'sick') w.pto += row.hours;
+    else if (cat === 'bd') w.bd += row.hours;
+    else if (cat === 'ird') w.ird += row.hours;
+    else w.overhead += row.hours;
+  }
+  return [...weekMap.values()].sort((a, b) => a.monday.localeCompare(b.monday));
+}
+
+type PeriodFilter = 'week' | 'month' | 'quarter' | 'year';
+
+function filterRowsByPeriod(rows: TimesheetRow[], filter: PeriodFilter): TimesheetRow[] {
+  if (filter === 'year') return rows;
+  const dates = rows.map((r) => r.date).sort();
+  const latest = new Date(dates[dates.length - 1] + 'T00:00:00');
+  if (filter === 'week') {
+    const monday = getMondayOf(dates[dates.length - 1]);
+    return rows.filter((r) => getMondayOf(r.date) === monday);
+  }
+  if (filter === 'month') {
+    const y = latest.getFullYear(), m = latest.getMonth();
+    return rows.filter((r) => {
+      const d = new Date(r.date + 'T00:00:00');
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+  }
+  const y = latest.getFullYear(), q = Math.floor(latest.getMonth() / 3);
+  return rows.filter((r) => {
+    const d = new Date(r.date + 'T00:00:00');
+    return d.getFullYear() === y && Math.floor(d.getMonth() / 3) === q;
+  });
+}
+
+function getPeriodLabel(rows: TimesheetRow[], filter: PeriodFilter): string {
+  const dates = rows.map((r) => r.date).sort();
+  const latest = new Date(dates[dates.length - 1] + 'T00:00:00');
+  if (filter === 'week') return weekLabel(getMondayOf(dates[dates.length - 1]));
+  if (filter === 'month') return latest.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  if (filter === 'quarter') return `Q${Math.floor(latest.getUTCMonth() / 3) + 1} ${latest.getUTCFullYear()}`;
+  return `${latest.getUTCFullYear()}`;
+}
+
+const TREND_LINES: { key: keyof Omit<TrendPoint, 'monday' | 'label'>; label: string; color: string }[] = [
+  { key: 'direct',   label: 'Direct (Billable)', color: CAT_COLOR.direct },
+  { key: 'pto',      label: 'PTO',               color: CAT_COLOR.pto },
+  { key: 'bd',       label: 'Biz Dev',            color: CAT_COLOR.bd },
+  { key: 'ird',      label: 'IR&D',               color: CAT_COLOR.ird },
+  { key: 'overhead', label: 'Overhead',            color: CAT_COLOR.overhead },
+];
+
+function TrendChart({ data }: { data: TrendPoint[] }) {
+  if (data.length < 2) return null;
+
+  const W = 900, H = 220;
+  const PAD = { top: 12, right: 16, bottom: 28, left: 46 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
+
+  const maxVal = Math.max(1, ...data.flatMap((d) => [d.direct, d.pto, d.bd, d.ird, d.overhead]));
+  const yMax = Math.ceil(maxVal / 20) * 20;
+  const yTicks = [0, 1, 2, 3, 4].map((i) => Math.round((yMax / 4) * i));
+
+  const xOf = (i: number) => PAD.left + (i / (data.length - 1)) * plotW;
+  const yOf = (v: number) => PAD.top + plotH - (v / yMax) * plotH;
+
+  const linePath = (key: keyof Omit<TrendPoint, 'monday' | 'label'>) =>
+    data.map((d, i) => `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(1)},${yOf(d[key]).toFixed(1)}`).join(' ');
+
+  const step = Math.max(1, Math.ceil(data.length / 8));
+
+  return (
+    <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="text-sm font-semibold text-slate-200">Hours Trend</h2>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {TREND_LINES.map(({ key, label, color }) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <svg width="16" height="4" className="shrink-0">
+                <line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <span className="text-xs text-slate-500">{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 200 }}>
+        {/* Grid + Y labels */}
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line x1={PAD.left} y1={yOf(tick)} x2={W - PAD.right} y2={yOf(tick)} stroke="#1e293b" strokeWidth="1" />
+            <text x={PAD.left - 6} y={yOf(tick)} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#475569">
+              {tick}h
+            </text>
+          </g>
+        ))}
+        {/* X labels */}
+        {data.map((d, i) => {
+          if (i % step !== 0 && i !== data.length - 1) return null;
+          return (
+            <text key={d.monday} x={xOf(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#475569">
+              {d.label.replace('Wk of ', '')}
+            </text>
+          );
+        })}
+        {/* Lines */}
+        {TREND_LINES.map(({ key, color }) => (
+          <path key={key} d={linePath(key)} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+        ))}
+        {/* Dots (only when few data points) */}
+        {data.length <= 16 && TREND_LINES.map(({ key, color }) =>
+          data.map((d, i) => (
+            <circle key={`${key}-${i}`} cx={xOf(i)} cy={yOf(d[key])} r="2.5" fill={color} />
+          ))
+        )}
+      </svg>
+    </div>
+  );
+}
+
 function utilColor(util: number): string {
   if (util >= 70) return '#22c55e';
   if (util >= 50) return '#eab308';
@@ -486,14 +626,21 @@ function UploadZone({ onData }: { onData: (rows: TimesheetRow[]) => void }) {
 
 export default function BillableHoursPage() {
   const [rows, setRows] = useState<TimesheetRow[] | null>(null);
-  const [weekFilter, setWeekFilter] = useState('all');
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('year');
+
+  const trendData = useMemo(() => (rows ? buildTrendData(rows) : []), [rows]);
+
+  const filteredRows = useMemo(
+    () => (rows ? filterRowsByPeriod(rows, periodFilter) : []),
+    [rows, periodFilter]
+  );
 
   const { people, weeks, totalHours, totalDirect, avgUtil } = useMemo(
     () =>
-      rows
-        ? buildStats(rows, weekFilter)
+      filteredRows.length
+        ? buildStats(filteredRows, 'all')
         : { people: [], weeks: [], totalHours: 0, totalDirect: 0, avgUtil: 0 },
-    [rows, weekFilter]
+    [filteredRows]
   );
 
   const period = useMemo(() => (rows ? periodLabel(rows) : ''), [rows]);
@@ -522,7 +669,7 @@ export default function BillableHoursPage() {
           </p>
         </div>
         <button
-          onClick={() => { setRows(null); setWeekFilter('all'); }}
+          onClick={() => { setRows(null); setPeriodFilter('year'); }}
           className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors border border-slate-700 rounded px-2.5 py-1.5"
         >
           <X className="h-3.5 w-3.5" />
@@ -551,38 +698,32 @@ export default function BillableHoursPage() {
         </div>
       </div>
 
-      {weeks.length > 1 && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 shrink-0">Filter:</span>
-          <div className="flex flex-wrap gap-2">
+      {/* Trend chart */}
+      <TrendChart data={trendData} />
+
+      {/* Period filter */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-slate-500 shrink-0">Filter:</span>
+        <div className="flex flex-wrap gap-2">
+          {(['week', 'month', 'quarter', 'year'] as PeriodFilter[]).map((f) => (
             <button
-              onClick={() => setWeekFilter('all')}
+              key={f}
+              onClick={() => setPeriodFilter(f)}
               className={cn(
                 'rounded px-2.5 py-1 text-xs font-medium border transition-colors',
-                weekFilter === 'all'
+                periodFilter === f
                   ? 'bg-blue-600/30 text-blue-300 border-blue-600/50'
                   : 'text-slate-400 border-slate-700 hover:bg-slate-800'
               )}
             >
-              All weeks
+              {f === 'week' ? getPeriodLabel(rows!, 'week')
+                : f === 'month' ? getPeriodLabel(rows!, 'month')
+                : f === 'quarter' ? getPeriodLabel(rows!, 'quarter')
+                : getPeriodLabel(rows!, 'year')}
             </button>
-            {weeks.map((w) => (
-              <button
-                key={w.monday}
-                onClick={() => setWeekFilter(w.monday)}
-                className={cn(
-                  'rounded px-2.5 py-1 text-xs font-medium border transition-colors',
-                  weekFilter === w.monday
-                    ? 'bg-blue-600/30 text-blue-300 border-blue-600/50'
-                    : 'text-slate-400 border-slate-700 hover:bg-slate-800'
-                )}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
-      )}
+      </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {people.map((p) => (
