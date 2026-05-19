@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-// Linear GraphQL query — teams + projects + issues (no milestones — separate endpoint)
 const PORTFOLIO_QUERY = `{
   teams {
     nodes {
@@ -14,7 +13,6 @@ const PORTFOLIO_QUERY = `{
           name
           state
           url
-          health
           startDate
           targetDate
           progress
