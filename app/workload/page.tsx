@@ -285,13 +285,18 @@ function buildTrendData(rows: TimesheetRow[]): TrendPoint[] {
   return [...weekMap.values()].sort((a, b) => a.monday.localeCompare(b.monday));
 }
 
-type PeriodFilter = 'week' | 'month' | 'quarter' | 'year';
+type PeriodFilter = 'week' | 'month' | 'q1' | 'q2' | 'q3' | 'q4' | 'year';
+
+function getLatestYear(rows: TimesheetRow[]): number {
+  const dates = rows.map((r) => r.date).sort();
+  return new Date(dates[dates.length - 1] + 'T00:00:00').getFullYear();
+}
 
 function filterRowsByPeriod(rows: TimesheetRow[], filter: PeriodFilter): TimesheetRow[] {
   const dates = rows.map((r) => r.date).sort();
   const latest = new Date(dates[dates.length - 1] + 'T00:00:00');
+  const y = latest.getFullYear();
   if (filter === 'year') {
-    const y = latest.getFullYear();
     return rows.filter((r) => new Date(r.date + 'T00:00:00').getFullYear() === y);
   }
   if (filter === 'week') {
@@ -299,26 +304,30 @@ function filterRowsByPeriod(rows: TimesheetRow[], filter: PeriodFilter): Timeshe
     return rows.filter((r) => getMondayOf(r.date) === monday);
   }
   if (filter === 'month') {
-    const y = latest.getFullYear(), m = latest.getMonth();
+    const m = latest.getMonth();
     return rows.filter((r) => {
       const d = new Date(r.date + 'T00:00:00');
       return d.getFullYear() === y && d.getMonth() === m;
     });
   }
-  const y = latest.getFullYear(), q = Math.floor(latest.getMonth() / 3);
+  const qNum = { q1: 0, q2: 1, q3: 2, q4: 3 }[filter as 'q1' | 'q2' | 'q3' | 'q4'];
   return rows.filter((r) => {
     const d = new Date(r.date + 'T00:00:00');
-    return d.getFullYear() === y && Math.floor(d.getMonth() / 3) === q;
+    return d.getFullYear() === y && Math.floor(d.getMonth() / 3) === qNum;
   });
 }
 
 function getPeriodLabel(rows: TimesheetRow[], filter: PeriodFilter): string {
   const dates = rows.map((r) => r.date).sort();
   const latest = new Date(dates[dates.length - 1] + 'T00:00:00');
+  const y = latest.getUTCFullYear();
   if (filter === 'week') return weekLabel(getMondayOf(dates[dates.length - 1]));
   if (filter === 'month') return latest.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-  if (filter === 'quarter') return `Q${Math.floor(latest.getUTCMonth() / 3) + 1} ${latest.getUTCFullYear()}`;
-  return `${latest.getUTCFullYear()}`;
+  if (filter === 'q1') return `Q1 ${y}`;
+  if (filter === 'q2') return `Q2 ${y}`;
+  if (filter === 'q3') return `Q3 ${y}`;
+  if (filter === 'q4') return `Q4 ${y}`;
+  return `${y}`;
 }
 
 const TREND_LINES: { key: keyof Omit<TrendPoint, 'monday' | 'label'>; label: string; color: string }[] = [
@@ -642,6 +651,20 @@ export default function BillableHoursPage() {
   const [rows, setRows] = useState<TimesheetRow[] | null>(null);
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('year');
 
+  const quartersWithData = useMemo(() => {
+    if (!rows) return new Set<PeriodFilter>();
+    const y = getLatestYear(rows);
+    const set = new Set<PeriodFilter>();
+    for (const r of rows) {
+      const d = new Date(r.date + 'T00:00:00');
+      if (d.getFullYear() === y) {
+        const q = Math.floor(d.getMonth() / 3);
+        set.add((['q1', 'q2', 'q3', 'q4'] as PeriodFilter[])[q]);
+      }
+    }
+    return set;
+  }, [rows]);
+
   const filteredRows = useMemo(
     () => (rows ? filterRowsByPeriod(rows, periodFilter) : []),
     [rows, periodFilter]
@@ -716,10 +739,10 @@ export default function BillableHoursPage() {
       <TrendChart data={trendData} />
 
       {/* Period filter */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-slate-500 shrink-0">Filter:</span>
         <div className="flex flex-wrap gap-2">
-          {(['week', 'month', 'quarter', 'year'] as PeriodFilter[]).map((f) => (
+          {(['week', 'month'] as PeriodFilter[]).map((f) => (
             <button
               key={f}
               onClick={() => setPeriodFilter(f)}
@@ -730,12 +753,40 @@ export default function BillableHoursPage() {
                   : 'text-slate-400 border-slate-700 hover:bg-slate-800'
               )}
             >
-              {f === 'week' ? getPeriodLabel(rows!, 'week')
-                : f === 'month' ? getPeriodLabel(rows!, 'month')
-                : f === 'quarter' ? getPeriodLabel(rows!, 'quarter')
-                : getPeriodLabel(rows!, 'year')}
+              {getPeriodLabel(rows!, f)}
             </button>
           ))}
+          {(['q1', 'q2', 'q3', 'q4'] as PeriodFilter[]).map((f) => {
+            const hasData = quartersWithData.has(f);
+            return (
+              <button
+                key={f}
+                onClick={() => hasData && setPeriodFilter(f)}
+                disabled={!hasData}
+                className={cn(
+                  'rounded px-2.5 py-1 text-xs font-medium border transition-colors',
+                  !hasData
+                    ? 'text-slate-600 border-slate-800 cursor-not-allowed opacity-50'
+                    : periodFilter === f
+                    ? 'bg-blue-600/30 text-blue-300 border-blue-600/50'
+                    : 'text-slate-400 border-slate-700 hover:bg-slate-800'
+                )}
+              >
+                {getPeriodLabel(rows!, f)}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setPeriodFilter('year')}
+            className={cn(
+              'rounded px-2.5 py-1 text-xs font-medium border transition-colors',
+              periodFilter === 'year'
+                ? 'bg-blue-600/30 text-blue-300 border-blue-600/50'
+                : 'text-slate-400 border-slate-700 hover:bg-slate-800'
+            )}
+          >
+            {getPeriodLabel(rows!, 'year')}
+          </button>
         </div>
       </div>
 
