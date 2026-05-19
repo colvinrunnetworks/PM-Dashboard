@@ -321,8 +321,8 @@ const TREND_LINES: { key: keyof Omit<TrendPoint, 'monday' | 'label'>; label: str
 function TrendChart({ data }: { data: TrendPoint[] }) {
   if (data.length < 2) return null;
 
-  const W = 900, H = 220;
-  const PAD = { top: 12, right: 16, bottom: 28, left: 46 };
+  const W = 900, H = 300;
+  const PAD = { top: 16, right: 16, bottom: 36, left: 56 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
@@ -353,12 +353,12 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
           ))}
         </div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 200 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 280 }}>
         {/* Grid + Y labels */}
         {yTicks.map((tick) => (
           <g key={tick}>
             <line x1={PAD.left} y1={yOf(tick)} x2={W - PAD.right} y2={yOf(tick)} stroke="#1e293b" strokeWidth="1" />
-            <text x={PAD.left - 6} y={yOf(tick)} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#475569">
+            <text x={PAD.left - 6} y={yOf(tick)} textAnchor="end" dominantBaseline="middle" fontSize="13" fontWeight="600" fill="#94a3b8">
               {tick}h
             </text>
           </g>
@@ -367,19 +367,19 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
         {data.map((d, i) => {
           if (i % step !== 0 && i !== data.length - 1) return null;
           return (
-            <text key={d.monday} x={xOf(i)} y={H - 4} textAnchor="middle" fontSize="9" fill="#475569">
+            <text key={d.monday} x={xOf(i)} y={H - 6} textAnchor="middle" fontSize="12" fontWeight="600" fill="#94a3b8">
               {d.label.replace('Wk of ', '')}
             </text>
           );
         })}
         {/* Lines */}
         {TREND_LINES.map(({ key, color }) => (
-          <path key={key} d={linePath(key)} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+          <path key={key} d={linePath(key)} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
         ))}
         {/* Dots (only when few data points) */}
         {data.length <= 16 && TREND_LINES.map(({ key, color }) =>
           data.map((d, i) => (
-            <circle key={`${key}-${i}`} cx={xOf(i)} cy={yOf(d[key])} r="2.5" fill={color} />
+            <circle key={`${key}-${i}`} cx={xOf(i)} cy={yOf(d[key])} r="4" fill={color} />
           ))
         )}
       </svg>
