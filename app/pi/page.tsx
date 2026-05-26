@@ -128,7 +128,7 @@ function ARTCard({
 
   // Urgent issues surfaced from project issue lists
   const urgentIssues = projects.flatMap((p) =>
-    p.issues.nodes.filter((i) => i.priority === 1 || i.priority === 2)
+    (p.issues?.nodes ?? []).filter((i) => i.priority === 1 || i.priority === 2)
   ).slice(0, 5);
 
   // Next milestone to deliver

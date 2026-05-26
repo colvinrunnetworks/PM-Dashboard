@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const PORTFOLIO_QUERY = `{
-  teams {
+  teams(first: 50) {
     nodes {
       id
       name
@@ -13,10 +13,21 @@ const PORTFOLIO_QUERY = `{
           name
           state
           url
+          health
           startDate
           targetDate
           progress
           lead { name }
+          issues(first: 3) {
+            nodes {
+              id
+              identifier
+              url
+              title
+              priority
+              state { name type }
+            }
+          }
         }
       }
     }
