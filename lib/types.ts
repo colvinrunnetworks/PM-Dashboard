@@ -113,8 +113,8 @@ export type DeadlineKind = 'project' | 'milestone';
 
 export interface CombinedDeadlineItem {
   kind: DeadlineKind;
-  id: string;              // projectId or milestoneId
-  label: string;           // project name or milestone name
+  id: string;
+  label: string;
   projectId: string;
   projectName: string;
   teamId: string;
@@ -124,6 +124,8 @@ export interface CombinedDeadlineItem {
   daysUntil: number;
   progress: number;
   milestoneStatus?: MilestoneStatus;
+  lead?: string | null;
+  projectState?: string;
 }
 
 export interface AppSettings {

@@ -245,33 +245,34 @@ export function computeCombinedDeadlines(
       const projectActive =
         project.state !== 'completed' && project.state !== 'cancelled';
 
-      // Project-level deadline
+      // Project-level deadline — include overdue (days < 0) and upcoming
       if (projectActive && project.targetDate) {
         const days = daysUntil(project.targetDate);
-        if (days >= 0 && days <= windowDays) {
+        if (days <= windowDays) {
           items.push({
-            kind:        'project',
-            id:          project.id,
-            label:       project.name,
-            projectId:   project.id,
-            projectName: project.name,
-            teamId:      team.id,
-            teamName:    team.name,
-            teamColor:   team.color,
-            targetDate:  project.targetDate,
-            daysUntil:   days,
-            progress:    project.progress,
+            kind:         'project',
+            id:           project.id,
+            label:        project.name,
+            projectId:    project.id,
+            projectName:  project.name,
+            teamId:       team.id,
+            teamName:     team.name,
+            teamColor:    team.color,
+            targetDate:   project.targetDate,
+            daysUntil:    days,
+            progress:     project.progress,
+            lead:         project.lead?.name ?? null,
+            projectState: project.state,
           });
         }
       }
 
-      // Milestone-level deadlines (include even if project is completed,
-      // so overdue milestones on closed projects don't silently disappear)
+      // Milestone-level deadlines
       for (const ms of (project.projectMilestones?.nodes ?? [])) {
-        if (ms.status === 'done') continue; // already done — skip
+        if (ms.status === 'done') continue;
         if (!ms.targetDate) continue;
         const days = daysUntil(ms.targetDate);
-        if (days >= 0 && days <= windowDays) {
+        if (days <= windowDays) {
           items.push({
             kind:            'milestone',
             id:              ms.id,
@@ -285,6 +286,8 @@ export function computeCombinedDeadlines(
             daysUntil:       days,
             progress:        ms.progress,
             milestoneStatus: ms.status,
+            lead:            project.lead?.name ?? null,
+            projectState:    project.state,
           });
         }
       }
