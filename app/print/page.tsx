@@ -807,7 +807,6 @@ export default function PrintPage() {
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
-      <style>{`@media print { .no-print { display: none !important; } .print-no-break { page-break-inside: avoid; } }`}</style>
 
       {/* Toolbar */}
       <div className="no-print" style={{
@@ -842,63 +841,102 @@ export default function PrintPage() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: '24px 32px', backgroundColor: 'white', minHeight: 'calc(100vh - 53px)' }}>
+      <div style={{ padding: '24px 32px', backgroundColor: '#e2e8f0', minHeight: 'calc(100vh - 53px)' }}>
+        <style>{`
+          @media print {
+            .no-print { display: none !important; }
+            .print-no-break { page-break-inside: avoid; }
+            .page-card { box-shadow: none !important; margin-bottom: 0 !important; padding: 0 !important; background: white !important; }
+          }
+          .page-card {
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.12);
+            padding: 32px;
+            margin-bottom: 0;
+          }
+          .page-divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+          }
+          .page-divider::before, .page-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #cbd5e1;
+          }
+        `}</style>
 
         {/* Page 1: Executive Summary */}
-        <div style={{ marginBottom: 20, borderBottom: '2px solid #1e40af', paddingBottom: 12 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>COLVIN RUN NETWORKS</div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', margin: 0 }}>SBIR Portfolio Report</h1>
-          {generatedAt && <p style={{ fontSize: 11, color: '#6b7280', margin: '4px 0 0' }}>Generated {generatedAt}</p>}
-        </div>
+        <div className="page-card" style={{ marginBottom: 0 }}>
+          <div style={{ marginBottom: 20, borderBottom: '2px solid #1e40af', paddingBottom: 12 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>COLVIN RUN NETWORKS</div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', margin: 0 }}>SBIR Portfolio Report</h1>
+            {generatedAt && <p style={{ fontSize: 11, color: '#6b7280', margin: '4px 0 0' }}>Generated {generatedAt}</p>}
+          </div>
 
-        {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6b7280', fontSize: 14 }}>Loading portfolio data…</div>}
-        {error   && <div style={{ textAlign: 'center', padding: '60px 0', color: '#dc2626', fontSize: 14 }}>Error: {error}</div>}
+          {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6b7280', fontSize: 14 }}>Loading portfolio data…</div>}
+          {error   && <div style={{ textAlign: 'center', padding: '60px 0', color: '#dc2626', fontSize: 14 }}>Error: {error}</div>}
+
+          {teams && !loading && (
+            <>
+              <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: '0 0 20px', padding: '12px 16px', background: '#f8fafc', borderLeft: '3px solid #1e40af', borderRadius: '0 4px 4px 0' }}>
+                {buildNarrative(teams, riskItems, riskItems.reduce((s, i) => s + i.backlogCount, 0))}
+              </p>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
+                {[
+                  { label: 'Active',    value: computeStats(teams).active,    color: '#2563eb' },
+                  { label: 'On Track',  value: computeStats(teams).onTrack,   color: '#16a34a' },
+                  { label: 'At Risk',   value: computeStats(teams).atRisk,    color: '#d97706' },
+                  { label: 'Overdue',   value: computeStats(teams).overdue,   color: '#dc2626' },
+                  { label: 'Completed', value: computeStats(teams).completed, color: '#6b7280' },
+                ].map(t => <StatTile key={t.label} {...t} />)}
+              </div>
+              <TeamHealthMatrix teams={teams} riskItems={riskItems} />
+              <TopRisks items={riskItems} />
+            </>
+          )}
+        </div>
 
         {teams && !loading && (
           <>
-            {/* Narrative */}
-            <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: '0 0 20px', padding: '12px 16px', background: '#f8fafc', borderLeft: '3px solid #1e40af', borderRadius: '0 4px 4px 0' }}>
-              {buildNarrative(teams, riskItems, riskItems.reduce((s, i) => s + i.backlogCount, 0))}
-            </p>
-
-            {/* Stats tiles */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
-              {[
-                { label: 'Active',    value: computeStats(teams).active,    color: '#2563eb' },
-                { label: 'On Track',  value: computeStats(teams).onTrack,   color: '#16a34a' },
-                { label: 'At Risk',   value: computeStats(teams).atRisk,    color: '#d97706' },
-                { label: 'Overdue',   value: computeStats(teams).overdue,   color: '#dc2626' },
-                { label: 'Completed', value: computeStats(teams).completed, color: '#6b7280' },
-              ].map(t => <StatTile key={t.label} {...t} />)}
-            </div>
-
-            {/* Team health matrix */}
-            <TeamHealthMatrix teams={teams} riskItems={riskItems} />
-
-            {/* Top risks */}
-            <TopRisks items={riskItems} />
+            {/* Page break indicator */}
+            <div className="no-print page-divider">Page 2 — Project Detail</div>
 
             {/* Page 2: Project Detail */}
-            <div style={{ marginTop: 40, pageBreakBefore: 'always' }}>
+            <div className="page-card" style={{ pageBreakBefore: 'always' }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Project Detail</h2>
               <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 20 }}>All active projects · Source: Linear</p>
               {teams.map(team => <TeamSection key={team.id} team={team} />)}
             </div>
 
-            {/* Page 3: Gantt */}
+            {/* Page break indicator */}
             {ganttTeams.length > 0 && (
-              <GanttSection
-                teams={ganttTeams}
-                quarterStart={quarter.start}
-                quarterEnd={quarter.end}
-                quarterLabel={quarter.label}
-              />
+              <div className="no-print page-divider">Page 3 — Program Schedule ({quarter.label})</div>
             )}
 
-            {/* Footer */}
-            <div style={{ marginTop: 32, paddingTop: 12, borderTop: '1px solid #e5e7eb', fontSize: 10, color: '#9ca3af', display: 'flex', justifyContent: 'space-between' }}>
-              <span>Colvin Run Networks — SBIR PM Dashboard</span>
-              <span>Data sourced from Linear · {generatedAt}</span>
+            {/* Page 3: Gantt */}
+            {ganttTeams.length > 0 && (
+              <div className="page-card" style={{ pageBreakBefore: 'always' }}>
+                <GanttSection
+                  teams={ganttTeams}
+                  quarterStart={quarter.start}
+                  quarterEnd={quarter.end}
+                  quarterLabel={quarter.label}
+                />
+              </div>
+            )}
+
+            {/* Footer — screen only */}
+            <div className="no-print" style={{ padding: '12px 0', fontSize: 10, color: '#94a3b8', textAlign: 'center' }}>
+              Colvin Run Networks · SBIR PM Dashboard · Data sourced from Linear · {generatedAt}
             </div>
           </>
         )}
