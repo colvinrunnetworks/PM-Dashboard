@@ -85,6 +85,36 @@ export async function fetchMilestonesByProject(): Promise<Map<string, Milestone[
   return map;
 }
 
+// ── Backlog types returned by /api/backlog ────────────────────────────────────
+
+export interface BacklogIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  priority: number;
+  state: { name: string; type: string };
+  project: { id: string } | null;
+  assignee: { name: string } | null;
+}
+
+export type BacklogMap = Record<string, BacklogIssue[]>; // projectId → issues
+
+/**
+ * Fetch all unprioritized / triage / backlog issues from the dedicated endpoint.
+ * Returns a map of projectId → BacklogIssue[] for easy joining.
+ */
+export async function fetchBacklogByProject(): Promise<BacklogMap> {
+  const res = await fetch('/api/backlog', { method: 'GET', cache: 'no-store' });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error ?? `Backlog request failed: ${res.status} ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  return (data.issuesByProject ?? {}) as BacklogMap;
+}
+
 /**
  * Fetch portfolio + milestones in parallel, then join milestones onto each project.
  */

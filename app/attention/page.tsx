@@ -6,7 +6,8 @@ import {
   CheckCircle2, ShieldAlert, ExternalLink, PauseCircle,
   CalendarX, UserX, Activity, Gauge, Inbox,
 } from 'lucide-react';
-import { fetchPortfolio } from '@/lib/api';
+import { fetchPortfolio, fetchBacklogByProject } from '@/lib/api';
+import type { BacklogIssue, BacklogMap } from '@/lib/api';
 import {
   cn, isAtRisk, isOverdue, daysUntil, formatDate, formatLeadName,
   healthClasses, healthLabel,
@@ -48,9 +49,10 @@ interface FlaggedProject {
   team: Team;
   flags: FlagKey[];
   daysLeft: number | null;
+  backlogIssues: BacklogIssue[];
 }
 
-function collectFlagged(teams: Team[]): FlaggedProject[] {
+function collectFlagged(teams: Team[], backlogMap: BacklogMap = {}): FlaggedProject[] {
   const result: FlaggedProject[] = [];
 
   for (const team of teams) {
@@ -86,17 +88,12 @@ function collectFlagged(teams: Team[]): FlaggedProject[] {
       if (isActive && !project.lead)       flags.push('no-lead');
       if (isActive && project.health === null) flags.push('no-health');
 
-      // Backlog health — issues that are unprioritized or stuck in triage/backlog
-      if (isActive) {
-        const issues = project.issues?.nodes ?? [];
-        const hasBacklogIssues = issues.some(
-          (i) => i.priority === 0 || i.state.type === 'triage' || i.state.type === 'backlog'
-        );
-        if (hasBacklogIssues) flags.push('backlog');
-      }
+      // Backlog health — use real data from dedicated endpoint
+      const backlogIssues = isActive ? (backlogMap[project.id] ?? []) : [];
+      if (isActive && backlogIssues.length > 0) flags.push('backlog');
 
       if (flags.length > 0) {
-        result.push({ project, team, flags, daysLeft: days });
+        result.push({ project, team, flags, daysLeft: days, backlogIssues });
       }
     }
   }
@@ -286,23 +283,27 @@ function AttentionCard({ item }: { item: FlaggedProject }) {
           <ProgressBar progress={project.progress} height="md" showLabel={false} />
         </div>
 
-        {/* Issues */}
-        {(project.issues?.nodes ?? []).length > 0 && (
+        {/* Backlog issues — real data from dedicated endpoint */}
+        {item.backlogIssues.length > 0 && (
           <div className="border-t border-slate-700/40 pt-2">
-            <div className="mb-1 text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Sampled Issues ({project.issues!.nodes.length})
+            <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-500/80 uppercase tracking-wider">
+              <Inbox className="h-3 w-3" />
+              Backlog Issues ({item.backlogIssues.length})
             </div>
             <ul className="space-y-1">
-              {project.issues!.nodes.slice(0, 3).map((issue) => {
-                const isBacklogIssue = issue.priority === 0 || issue.state.type === 'triage' || issue.state.type === 'backlog';
-                return (
-                  <li key={issue.id} className={cn('flex items-center gap-2 text-xs', isBacklogIssue ? 'text-amber-400/80' : 'text-slate-400')}>
-                    <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', isBacklogIssue ? 'bg-amber-500/60' : 'bg-slate-600')} />
-                    <span className="truncate">{issue.title}</span>
-                    <span className={cn('shrink-0', isBacklogIssue ? 'text-amber-600' : 'text-slate-600')}>{issue.state.name}</span>
-                  </li>
-                );
-              })}
+              {item.backlogIssues.slice(0, 8).map((issue) => (
+                <li key={issue.id} className="flex items-center gap-2 text-xs text-amber-400/70">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500/50 shrink-0" />
+                  <span className="font-mono text-amber-600/60 shrink-0">{issue.identifier}</span>
+                  <span className="truncate">{issue.title}</span>
+                  <span className="shrink-0 text-amber-700/70">{issue.state.name}</span>
+                </li>
+              ))}
+              {item.backlogIssues.length > 8 && (
+                <li className="text-xs text-slate-600 pl-3.5">
+                  +{item.backlogIssues.length - 8} more
+                </li>
+              )}
             </ul>
           </div>
         )}
@@ -357,8 +358,11 @@ export default function AttentionPage() {
     setLoading(true);
     setError(null);
     try {
-      const teams = await fetchPortfolio();
-      setAllItems(collectFlagged(teams));
+      const [teams, backlogMap] = await Promise.all([
+        fetchPortfolio(),
+        fetchBacklogByProject(),
+      ]);
+      setAllItems(collectFlagged(teams, backlogMap));
       setLastRefreshed(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
