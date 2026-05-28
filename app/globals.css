@@ -51,21 +51,29 @@ body {
 
 /* ── Print styles ─────────────────────────────────────────────────────────── */
 @media print {
+  @page {
+    size: landscape;
+    margin: 1cm;
+  }
+
   /* Hide the sidebar and print-only-hidden elements */
   aside,
   .no-print {
     display: none !important;
   }
 
-  /* Let main fill the full page */
+  /* Remove overflow and height constraints — these kill page breaks */
   body,
-  html {
+  html,
+  main,
+  .overflow-hidden,
+  .overflow-y-auto,
+  .h-screen {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
     background: white !important;
     color: black !important;
-  }
-
-  main {
-    overflow: visible !important;
   }
 
   /* Print-specific text overrides */
@@ -77,5 +85,15 @@ body {
   tr,
   .print-no-break {
     break-inside: avoid;
+  }
+
+  /* Page section breaks */
+  .print-page {
+    break-after: page;
+    page-break-after: always;
+  }
+  .print-page:last-of-type {
+    break-after: auto;
+    page-break-after: auto;
   }
 }

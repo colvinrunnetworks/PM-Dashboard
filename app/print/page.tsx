@@ -843,17 +843,11 @@ export default function PrintPage() {
       {/* Content */}
       <div style={{ padding: '24px 32px', backgroundColor: '#e2e8f0', minHeight: 'calc(100vh - 53px)' }}>
         <style>{`
-          @media print {
-            .no-print { display: none !important; }
-            .print-no-break { page-break-inside: avoid; }
-            .page-card { box-shadow: none !important; margin-bottom: 0 !important; padding: 0 !important; background: white !important; }
-          }
           .page-card {
             background: white;
             border-radius: 4px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.12);
             padding: 32px;
-            margin-bottom: 0;
           }
           .page-divider {
             display: flex;
@@ -875,7 +869,7 @@ export default function PrintPage() {
         `}</style>
 
         {/* Page 1: Executive Summary */}
-        <div className="page-card" style={{ marginBottom: 0 }}>
+        <div className="page-card print-page">
           <div style={{ marginBottom: 20, borderBottom: '2px solid #1e40af', paddingBottom: 12 }}>
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>COLVIN RUN NETWORKS</div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', margin: 0 }}>SBIR Portfolio Report</h1>
@@ -911,7 +905,7 @@ export default function PrintPage() {
             <div className="no-print page-divider">Page 2 — Project Detail</div>
 
             {/* Page 2: Project Detail */}
-            <div className="page-card" style={{ pageBreakBefore: 'always', breakBefore: 'page' }}>
+            <div className="page-card print-page">
               <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Project Detail</h2>
               <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 20 }}>All active projects · Source: Linear</p>
               {teams.map(team => <TeamSection key={team.id} team={team} />)}
@@ -924,7 +918,7 @@ export default function PrintPage() {
 
             {/* Page 3: Gantt */}
             {ganttTeams.length > 0 && (
-              <div className="page-card" style={{ pageBreakBefore: 'always', breakBefore: 'page' }}>
+              <div className="page-card">
                 <GanttSection
                   teams={ganttTeams}
                   quarterStart={quarter.start}
