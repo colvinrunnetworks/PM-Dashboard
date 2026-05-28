@@ -318,7 +318,10 @@ function GanttView({ teams, milestoneMap, rangeOverride }: GanttViewProps) {
                       >
                         <div className="absolute inset-y-0 left-0 rounded opacity-40 bg-white" style={{ width: `${Math.round(project.progress * 100)}%` }} />
                         {barWidth >= 12 && (
-                          <span className="relative z-10 px-1.5 text-white/90 font-medium whitespace-nowrap overflow-hidden" style={{ fontSize: 9 }}>
+                          <span
+                            className="relative z-10 px-1.5 font-semibold whitespace-nowrap overflow-hidden"
+                            style={{ fontSize: 9, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.7)' }}
+                          >
                             {fmtDateShort(project.startDate)} → {fmtDateShort(project.targetDate)}
                           </span>
                         )}
@@ -384,19 +387,51 @@ function GanttView({ teams, milestoneMap, rangeOverride }: GanttViewProps) {
 
 // ── Export: HTML ──────────────────────────────────────────────────────────────
 
-function generateExportHTML(teams: GanttTeam[], selectionLabel: string): string {
+function generateExportHTML(
+  teams: GanttTeam[],
+  selectionLabel: string,
+  rangeOverride: { start: string; end: string } | null = null,
+): string {
   const today    = new Date();
   const todayStr = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const allProjects = teams.flatMap(t => t.projects.nodes);
-  const starts   = allProjects.map(p => parseUTC(p.startDate)).filter(Boolean) as Date[];
-  const ends     = allProjects.map(p => parseUTC(p.targetDate)).filter(Boolean) as Date[];
 
-  if (!starts.length && !ends.length) return '<html><body><p>No projects with dates.</p></body></html>';
+  let minDate: Date;
+  let maxDate: Date;
 
-  const minDate = startOfMonthUTC(new Date(Math.min(...starts.map(d => d.getTime()))));
-  const maxDate = addMonthsUTC(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
+  if (rangeOverride) {
+    const [sy, sm] = rangeOverride.start.split('-').map(Number);
+    const [ey, em] = rangeOverride.end.split('-').map(Number);
+    minDate = new Date(Date.UTC(sy, sm - 1, 1));
+    maxDate = addMonthsUTC(new Date(Date.UTC(ey, em - 1, 1)), 1);
+  } else {
+    const allProjects = teams.flatMap(t => t.projects.nodes);
+    const starts = allProjects.map(p => parseUTC(p.startDate)).filter(Boolean) as Date[];
+    const ends   = allProjects.map(p => parseUTC(p.targetDate)).filter(Boolean) as Date[];
+    if (!starts.length && !ends.length) return '<html><body><p>No projects with dates.</p></body></html>';
+    minDate = startOfMonthUTC(new Date(Math.min(...starts.map(d => d.getTime()))));
+    maxDate = addMonthsUTC(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
+  }
+
+  // Filter teams to only projects overlapping the visible window
+  const filteredTeams = teams.map(t => ({
+    ...t,
+    projects: {
+      nodes: t.projects.nodes.filter(p => {
+        const s = parseUTC(p.startDate);
+        const e = parseUTC(p.targetDate);
+        if (!s && !e) return !rangeOverride; // no-date projects: include in full export only
+        const start = s ?? e!;
+        const end   = e ?? s!;
+        return start < maxDate && end >= minDate;
+      }),
+    },
+  })).filter(t => t.projects.nodes.length > 0);
+
   const totalMs = maxDate.getTime() - minDate.getTime();
   const pct     = makePositioner(minDate.getTime(), totalMs);
+  const rangeLabel = rangeOverride
+    ? ` · ${fmtMonth(minDate)} – ${fmtMonth(addMonthsUTC(maxDate, -1))}`
+    : '';
 
   const months: { label: string; left: number; width: number }[] = [];
   let cur = new Date(minDate);
@@ -408,10 +443,10 @@ function generateExportHTML(teams: GanttTeam[], selectionLabel: string): string 
 
   const todayPct    = today >= minDate && today <= maxDate ? pct(today) : null;
   const esc         = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  const todayLine   = (pct: number) => `<div style="position:absolute;top:0;bottom:0;width:1px;background:#e74c3c88;left:${pct.toFixed(3)}%;z-index:5;"></div>`;
+  const todayLine   = (p: number) => `<div style="position:absolute;top:0;bottom:0;width:1px;background:#e74c3c88;left:${p.toFixed(3)}%;z-index:5;"></div>`;
 
   let rows = '';
-  for (const team of teams) {
+  for (const team of filteredTeams) {
     rows += `<tr>
       <td colspan="2" style="padding:6px 10px;font-weight:700;font-size:11px;color:#fff;background:${team.color}cc;border-bottom:1px solid #555;">
         ${esc(team.name)}${team.key !== team.name ? ` <span style="opacity:.6;font-weight:400;">${esc(team.key)}</span>` : ''}
@@ -423,8 +458,10 @@ function generateExportHTML(teams: GanttTeam[], selectionLabel: string): string 
       const e = parseUTC(p.targetDate);
       const color    = stateColor(p.state);
       const hasBar   = s && e;
-      const barLeft  = hasBar ? pct(s!).toFixed(3) : '0';
-      const barWidth = hasBar ? Math.max(0.3, pct(e!) - pct(s!)).toFixed(3) : '0';
+      const barLeft  = hasBar ? Math.max(0, pct(s!)).toFixed(3) : '0';
+      const barRight = hasBar ? Math.min(100, pct(e!)) : 0;
+      const barWidth = hasBar ? Math.max(0.3, barRight - parseFloat(barLeft)).toFixed(3) : '0';
+      const barVisible = hasBar && barRight > 0 && parseFloat(barLeft) < 100;
 
       rows += `<tr>
         <td style="width:260px;min-width:260px;max-width:260px;padding:3px 10px;font-size:10px;color:#ddd;border-right:1px solid #333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid #2a2a2a;" title="${esc(p.name)}">
@@ -433,9 +470,9 @@ function generateExportHTML(teams: GanttTeam[], selectionLabel: string): string 
         <td style="position:relative;border-bottom:1px solid #2a2a2a;">
           <div style="position:relative;height:16px;width:100%;">
             ${todayPct !== null ? todayLine(todayPct) : ''}
-            ${hasBar
-              ? `<div style="position:absolute;left:${barLeft}%;width:${barWidth}%;height:100%;background:${color};border-radius:2px;opacity:.85;" title="${esc(p.name)} | ${fmtDate(p.startDate)} → ${fmtDate(p.targetDate)} | ${esc(stateLabel(p.state))}"></div>`
-              : `<span style="font-size:9px;color:#555;font-style:italic;padding-left:8px;">No dates — Backlog</span>`}
+            ${barVisible
+              ? `<div style="position:absolute;left:${barLeft}%;width:${barWidth}%;height:100%;background:${color};border-radius:2px;opacity:.85;display:flex;align-items:center;overflow:hidden;" title="${esc(p.name)} | ${fmtDate(p.startDate)} → ${fmtDate(p.targetDate)} | ${esc(stateLabel(p.state))}"><span style="font-size:8px;color:#fff;padding:0 4px;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,0.9);">${esc(fmtDateShort(p.startDate))} → ${esc(fmtDateShort(p.targetDate))}</span></div>`
+              : !hasBar ? `<span style="font-size:9px;color:#555;font-style:italic;padding-left:8px;">No dates — Backlog</span>` : ''}
           </div>
         </td>
       </tr>`;
@@ -463,7 +500,7 @@ table{width:100%;border-collapse:collapse;}
 </style>
 </head>
 <body>
-<h1>Program Gantt — ${esc(selectionLabel)}</h1>
+<h1>Program Gantt — ${esc(selectionLabel)}${esc(rangeLabel)}</h1>
 <p class="meta">Generated: ${todayStr} &nbsp;·&nbsp; Source: Linear</p>
 <div class="legend">
   ${Object.entries(STATE_COLOR).filter(([k])=>k!=='cancelled').map(([k,c])=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#999;"><span class="dot" style="background:${c};"></span>${STATE_LABEL[k]}</span>`).join('')}
@@ -480,16 +517,42 @@ table{width:100%;border-collapse:collapse;}
 
 // ── Export: plain text summary ────────────────────────────────────────────────
 
-function generateExportTXT(teams: GanttTeam[], selectionLabel: string): string {
+function generateExportTXT(
+  teams: GanttTeam[],
+  selectionLabel: string,
+  rangeOverride: { start: string; end: string } | null = null,
+): string {
   const todayStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  // Filter to range if set
+  let filteredTeams = teams;
+  if (rangeOverride) {
+    const [sy, sm] = rangeOverride.start.split('-').map(Number);
+    const [ey, em] = rangeOverride.end.split('-').map(Number);
+    const minDate = new Date(Date.UTC(sy, sm - 1, 1));
+    const maxDate = addMonthsUTC(new Date(Date.UTC(ey, em - 1, 1)), 1);
+    filteredTeams = teams.map(t => ({
+      ...t,
+      projects: {
+        nodes: t.projects.nodes.filter(p => {
+          const s = parseUTC(p.startDate);
+          const e = parseUTC(p.targetDate);
+          if (!s && !e) return false;
+          return (s ?? e!) < maxDate && (e ?? s!) >= minDate;
+        }),
+      },
+    })).filter(t => t.projects.nodes.length > 0);
+  }
+
+  const rangeNote = rangeOverride ? `  |  Range: ${rangeOverride.start} → ${rangeOverride.end}` : '';
   const lines = [
-    `Program Schedule — ${selectionLabel}`,
+    `Program Schedule — ${selectionLabel}${rangeNote}`,
     `Generated: ${todayStr}  |  Source: Linear`,
     '',
     ['Group / Team', 'Project', 'Start', 'End', 'Status'].join('\t'),
     ['------------', '-------', '-----', '---', '------'].join('\t'),
   ];
-  for (const team of teams) {
+  for (const team of filteredTeams) {
     for (const p of team.projects.nodes) {
       lines.push([team.name, p.name, p.startDate ?? '—', p.targetDate ?? '—', stateLabel(p.state)].join('\t'));
     }
@@ -625,7 +688,7 @@ export default function GanttPage() {
             Refresh
           </button>
           <button
-            onClick={() => triggerDownload(generateExportTXT(teams, selectionLabel), 'text/plain;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.txt`)}
+            onClick={() => triggerDownload(generateExportTXT(teams, selectionLabel, rangeOverride), 'text/plain;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.txt`)}
             disabled={loading || teams.length === 0}
             className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-50 transition-colors"
           >
@@ -633,7 +696,7 @@ export default function GanttPage() {
             Export TXT
           </button>
           <button
-            onClick={() => triggerDownload(generateExportHTML(teams, selectionLabel), 'text/html;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.html`)}
+            onClick={() => triggerDownload(generateExportHTML(teams, selectionLabel, rangeOverride), 'text/html;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.html`)}
             disabled={loading || teams.length === 0}
             className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
           >
