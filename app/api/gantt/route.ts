@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 
-// All teams — no issues field keeps complexity well under 10k limit
+// All teams — projects(first:15) keeps 50*15*~7 ≈ 5,250 complexity under 10k
 const ALL_TEAMS_QUERY = `{
   teams(first: 50) {
     nodes {
       id name key color
-      projects(first: 50) {
+      projects(first: 15) {
         nodes {
           id name state startDate targetDate progress
           lead { name }
@@ -56,8 +56,10 @@ export async function GET(request: Request) {
 
     if (!res.ok) {
       const text = await res.text();
+      let detail = text;
+      try { detail = JSON.stringify(JSON.parse(text), null, 2); } catch { /* keep raw */ }
       return NextResponse.json(
-        { error: `Linear API ${res.status}: ${res.statusText}`, detail: text },
+        { error: `Linear API ${res.status}: ${res.statusText}`, detail },
         { status: res.status }
       );
     }
