@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { Printer, RefreshCw } from 'lucide-react';
-import { fetchPortfolioWithMilestones } from '@/lib/api';
+import { fetchPortfolioWithMilestones, fetchBacklogByProject } from '@/lib/api';
+import type { BacklogMap } from '@/lib/api';
 import {
   computeStats,
   isOverdue,
   isAtRisk,
+  daysUntil,
   statusLabel,
   formatDate,
   formatLeadName,
@@ -282,6 +284,148 @@ function upcomingMilestones(project: Project): string {
     .join('; ') || '—';
 }
 
+// ── Risk Register ─────────────────────────────────────────────────────────────
+
+interface RiskItem {
+  projectId: string;
+  projectName: string;
+  projectUrl: string;
+  teamName: string;
+  teamColor: string;
+  teamKey: string;
+  flags: string[];
+  severity: number; // lower = worse
+  daysLeft: number | null;
+  progress: number;
+  lead: string | null;
+  state: string;
+  backlogCount: number;
+}
+
+const RISK_SEVERITY: Record<string, number> = {
+  'Overdue': 0, 'At Risk': 1, 'Due Soon': 2, 'Stalled': 3,
+  'On Hold': 4, 'No Deadline': 5, 'No Lead': 6, 'Health Not Set': 7, 'Backlog Issues': 8,
+};
+
+function buildRiskItems(teams: Team[], backlogMap: BacklogMap): RiskItem[] {
+  const items: RiskItem[] = [];
+  for (const team of teams) {
+    for (const project of team.projects.nodes) {
+      const isActive = project.state !== 'completed' && project.state !== 'cancelled';
+      const flags: string[] = [];
+      const days = project.targetDate ? daysUntil(project.targetDate) : null;
+      const backlogCount = backlogMap[project.id]?.length ?? 0;
+
+      if (isOverdue(project))    flags.push('Overdue');
+      else if (isAtRisk(project)) flags.push('At Risk');
+      else if (isActive && days !== null && days >= 0 && days <= 30 && project.progress < 0.5) flags.push('Due Soon');
+
+      if (project.state === 'paused') flags.push('On Hold');
+      if (project.state === 'started' && project.progress === 0 && project.startDate && daysUntil(project.startDate) < 0) flags.push('Stalled');
+      if (isActive && !project.targetDate)       flags.push('No Deadline');
+      if (isActive && !project.lead)             flags.push('No Lead');
+      if (isActive && project.health === null)   flags.push('Health Not Set');
+      if (isActive && backlogCount > 0)          flags.push('Backlog Issues');
+
+      if (flags.length > 0) {
+        const severity = Math.min(...flags.map(f => RISK_SEVERITY[f] ?? 99));
+        items.push({
+          projectId: project.id, projectName: project.name, projectUrl: project.url,
+          teamName: team.name, teamColor: team.color, teamKey: team.key,
+          flags, severity, daysLeft: days,
+          progress: project.progress,
+          lead: project.lead ? formatLeadName(project.lead.name) : null,
+          state: project.state, backlogCount,
+        });
+      }
+    }
+  }
+  return items.sort((a, b) => a.severity - b.severity || (a.daysLeft ?? 9999) - (b.daysLeft ?? 9999));
+}
+
+const FLAG_COLORS: Record<string, { bg: string; text: string }> = {
+  'Overdue':       { bg: '#fef2f2', text: '#dc2626' },
+  'At Risk':       { bg: '#fff7ed', text: '#d97706' },
+  'Due Soon':      { bg: '#fefce8', text: '#ca8a04' },
+  'Stalled':       { bg: '#faf5ff', text: '#7c3aed' },
+  'On Hold':       { bg: '#eff6ff', text: '#2563eb' },
+  'No Deadline':   { bg: '#f9fafb', text: '#6b7280' },
+  'No Lead':       { bg: '#f9fafb', text: '#6b7280' },
+  'Health Not Set':{ bg: '#f9fafb', text: '#6b7280' },
+  'Backlog Issues':{ bg: '#fffbeb', text: '#b45309' },
+};
+
+function FlagPill({ flag }: { flag: string }) {
+  const c = FLAG_COLORS[flag] ?? { bg: '#f3f4f6', text: '#374151' };
+  return (
+    <span style={{
+      display: 'inline-block', padding: '1px 6px', borderRadius: 10,
+      fontSize: 9, fontWeight: 600, marginRight: 3, whiteSpace: 'nowrap',
+      backgroundColor: c.bg, color: c.text,
+    }}>{flag}</span>
+  );
+}
+
+function RiskRegisterSection({ items }: { items: RiskItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div style={{ marginTop: 32, pageBreakBefore: 'always' }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Risk Register</h2>
+      <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>
+        {items.length} flagged project{items.length !== 1 ? 's' : ''} · Sorted by severity
+      </p>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr style={{ backgroundColor: '#f3f4f6' }}>
+            <th style={{ width: 4, padding: 0 }} />
+            {['Project', 'Team', 'Flags', 'Days', 'Progress', 'Lead', 'Backlog'].map(h => (
+              <th key={h} style={{ padding: '5px 8px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map(item => {
+            const isOv = item.flags.includes('Overdue');
+            const isAR = item.flags.includes('At Risk');
+            const pct  = Math.round(item.progress * 100);
+            const daysTxt = item.daysLeft === null ? '—'
+              : isOv  ? `${Math.abs(item.daysLeft)}d overdue`
+              : item.daysLeft === 0 ? 'Today'
+              : `${item.daysLeft}d`;
+            const daysColor = isOv ? '#dc2626' : isAR ? '#d97706' : '#374151';
+            const pgColor = pct >= 80 ? '#22c55e' : pct >= 50 ? '#3b82f6' : pct >= 25 ? '#eab308' : '#ef4444';
+            return (
+              <tr key={item.projectId} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <td style={{ width: 4, padding: 0, backgroundColor: item.teamColor }} />
+                <td style={{ padding: '6px 8px', color: '#111827' }}>{item.projectName}</td>
+                <td style={{ padding: '6px 8px', color: '#374151', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 9, fontFamily: 'monospace', color: item.teamColor, backgroundColor: `${item.teamColor}20`, padding: '1px 5px', borderRadius: 3 }}>{item.teamKey}</span>
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  {item.flags.map(f => <FlagPill key={f} flag={f} />)}
+                </td>
+                <td style={{ padding: '6px 8px', color: daysColor, fontWeight: isOv || isAR ? 600 : 400, whiteSpace: 'nowrap' }}>{daysTxt}</td>
+                <td style={{ padding: '6px 8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <div style={{ width: 48, height: 5, borderRadius: 3, backgroundColor: '#e5e7eb', overflow: 'hidden', flexShrink: 0 }}>
+                      <div style={{ height: '100%', borderRadius: 3, width: `${pct}%`, backgroundColor: pgColor }} />
+                    </div>
+                    <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>{pct}%</span>
+                  </div>
+                </td>
+                <td style={{ padding: '6px 8px', color: item.lead ? '#374151' : '#d1d5db', fontStyle: item.lead ? 'normal' : 'italic' }}>{item.lead ?? 'No lead'}</td>
+                <td style={{ padding: '6px 8px', color: item.backlogCount > 0 ? '#b45309' : '#d1d5db', fontWeight: item.backlogCount > 0 ? 600 : 400 }}>
+                  {item.backlogCount > 0 ? item.backlogCount : '—'}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Project table row ────────────────────────────────────────────────────────
 
 function ProjectTableRow({ project, teamColor }: { project: Project; teamColor: string }) {
@@ -423,7 +567,58 @@ function SummaryBar({ teams }: { teams: Team[] }) {
 
 // ── Standalone HTML export ────────────────────────────────────────────────────
 
-function generateReportHTML(teams: Team[], ganttTeams: PrintGanttTeam[], generatedAt: string): string {
+function buildRiskRegisterHTML(items: RiskItem[], esc: (s: string) => string): string {
+  if (items.length === 0) return '';
+
+  const rows = items.map(item => {
+    const isOv = item.flags.includes('Overdue');
+    const isAR = item.flags.includes('At Risk');
+    const pct  = Math.round(item.progress * 100);
+    const daysTxt = item.daysLeft === null ? '—'
+      : isOv  ? `${Math.abs(item.daysLeft)}d overdue`
+      : item.daysLeft === 0 ? 'Today'
+      : `${item.daysLeft}d`;
+    const daysColor = isOv ? '#dc2626' : isAR ? '#d97706' : '#374151';
+    const pgColor   = pct >= 80 ? '#22c55e' : pct >= 50 ? '#3b82f6' : pct >= 25 ? '#eab308' : '#ef4444';
+    const flagPills = item.flags.map(f => {
+      const c = FLAG_COLORS[f] ?? { bg: '#f3f4f6', text: '#374151' };
+      return `<span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:600;margin-right:3px;white-space:nowrap;background:${c.bg};color:${c.text}">${esc(f)}</span>`;
+    }).join('');
+    return `<tr style="border-bottom:1px solid #f3f4f6">
+      <td style="width:4px;padding:0;background:${item.teamColor}"></td>
+      <td style="padding:6px 8px;font-size:11px;color:#111827">${esc(item.projectName)}</td>
+      <td style="padding:6px 8px;font-size:11px;white-space:nowrap">
+        <span style="font-size:9px;font-family:monospace;color:${item.teamColor};background:${item.teamColor}20;padding:1px 5px;border-radius:3px">${esc(item.teamKey)}</span>
+      </td>
+      <td style="padding:6px 8px">${flagPills}</td>
+      <td style="padding:6px 8px;font-size:11px;color:${daysColor};font-weight:${isOv||isAR?600:400};white-space:nowrap">${esc(daysTxt)}</td>
+      <td style="padding:6px 8px">
+        <div style="display:flex;align-items:center;gap:5px">
+          <div style="width:48px;height:5px;border-radius:3px;background:#e5e7eb;overflow:hidden;flex-shrink:0">
+            <div style="height:100%;width:${pct}%;border-radius:3px;background:${pgColor}"></div>
+          </div>
+          <span style="font-size:11px;color:#6b7280;white-space:nowrap">${pct}%</span>
+        </div>
+      </td>
+      <td style="padding:6px 8px;font-size:11px;color:${item.lead ? '#374151' : '#d1d5db'};font-style:${item.lead ? 'normal' : 'italic'}">${esc(item.lead ?? 'No lead')}</td>
+      <td style="padding:6px 8px;font-size:11px;color:${item.backlogCount > 0 ? '#b45309' : '#d1d5db'};font-weight:${item.backlogCount > 0 ? 600 : 400}">${item.backlogCount > 0 ? item.backlogCount : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div style="margin-top:32px;page-break-before:always">
+  <h2 style="font-size:16px;font-weight:700;color:#111827;margin:0 0 4px">Risk Register</h2>
+  <p style="font-size:11px;color:#6b7280;margin:0 0 12px">${items.length} flagged project${items.length !== 1 ? 's' : ''} · Sorted by severity</p>
+  <table style="width:100%;border-collapse:collapse;font-size:11px">
+    <thead><tr style="background:#f3f4f6">
+      <th style="width:4px;padding:0"></th>
+      ${['Project','Team','Flags','Days','Progress','Lead','Backlog'].map(h => `<th style="padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:left;white-space:nowrap">${h}</th>`).join('')}
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+</div>`;
+}
+
+function generateReportHTML(teams: Team[], ganttTeams: PrintGanttTeam[], riskItems: RiskItem[], generatedAt: string): string {
   const esc = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const stats = computeStats(teams);
 
@@ -485,6 +680,8 @@ function generateReportHTML(teams: Team[], ganttTeams: PrintGanttTeam[], generat
     <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${label}</div>
   </div>`).join('');
 
+  const riskHTML = buildRiskRegisterHTML(riskItems, esc);
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -506,6 +703,7 @@ body{font-family:system-ui,'Segoe UI',Arial,sans-serif;font-size:12px;color:#111
 </div>
 <div style="display:flex;gap:20px;padding:8px 0;margin-bottom:20px;border-bottom:1px solid #e5e7eb">${statsHtml}</div>
 ${teamSections}
+${riskHTML}
 ${ganttTeams.length > 0 ? buildGanttHTMLSection(ganttTeams) : ''}
 <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#9ca3af;display:flex;justify-content:space-between">
   <span>Colvin Run Networks — SBIR PM Dashboard</span>
@@ -528,6 +726,7 @@ function triggerDownload(content: string, mimeType: string, filename: string) {
 export default function PrintPage() {
   const [teams, setTeams] = useState<Team[] | null>(null);
   const [ganttTeams, setGanttTeams] = useState<PrintGanttTeam[]>([]);
+  const [riskItems, setRiskItems] = useState<RiskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string>('');
@@ -536,11 +735,13 @@ export default function PrintPage() {
     setLoading(true);
     setError(null);
     try {
-      const [portfolioData, ganttRes] = await Promise.all([
+      const [portfolioData, ganttRes, backlogMap] = await Promise.all([
         fetchPortfolioWithMilestones(),
         fetch('/api/gantt'),
+        fetchBacklogByProject(),
       ]);
       setTeams(portfolioData);
+      setRiskItems(buildRiskItems(portfolioData, backlogMap));
       if (ganttRes.ok) {
         const ganttJson = await ganttRes.json();
         setGanttTeams(ganttJson.teams ?? []);
@@ -589,7 +790,7 @@ export default function PrintPage() {
           Refresh
         </button>
         <button
-          onClick={() => teams && triggerDownload(generateReportHTML(teams, ganttTeams, generatedAt), 'text/html;charset=utf-8', `sbir-portfolio-report-${dateSlug}.html`)}
+          onClick={() => teams && triggerDownload(generateReportHTML(teams, ganttTeams, riskItems, generatedAt), 'text/html;charset=utf-8', `sbir-portfolio-report-${dateSlug}.html`)}
           disabled={loading || !!error || !teams}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -659,6 +860,9 @@ export default function PrintPage() {
             {teams.map((team) => (
               <TeamSection key={team.id} team={team} />
             ))}
+
+            {/* Risk Register section */}
+            <RiskRegisterSection items={riskItems} />
 
             {/* Gantt section */}
             {ganttTeams.length > 0 && <GanttSection teams={ganttTeams} />}
