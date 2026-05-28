@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FolderKanban, Settings, Shield, AlertTriangle, CalendarClock, GanttChart, Printer, Users, Target } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, Settings, Shield, AlertTriangle, CalendarClock, GanttChart, AlignLeft, Printer, Users, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAttentionCount, useTimelineBeyondCount } from '@/lib/useAttentionCount';
 
@@ -41,7 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     href: '/timeline',
     label: 'Timeline',
-    icon: <GanttChart className="h-4 w-4" />,
+    icon: <AlignLeft className="h-4 w-4" />,
     exact: true,
   },
   {
@@ -49,6 +49,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Billable Hours',
     icon: <Users className="h-4 w-4" />,
     exact: true,
+  },
+  {
+    href: '/gantt',
+    label: 'Gantt',
+    icon: <GanttChart className="h-4 w-4" />,
+    exact: false,
   },
   {
     href: '/pi',
