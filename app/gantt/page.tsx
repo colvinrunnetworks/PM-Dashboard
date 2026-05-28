@@ -132,6 +132,49 @@ function fmtDate(iso: string | null): string {
   });
 }
 
+function fmtDateShort(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', {
+    month: 'short', year: '2-digit', timeZone: 'UTC',
+  });
+}
+
+// ── Range preset helpers ──────────────────────────────────────────────────────
+
+type RangePreset = 'month' | 'quarter' | 'next-quarter' | 'year';
+
+function presetRange(p: RangePreset): { start: string; end: string } {
+  const now  = new Date();
+  const y    = now.getFullYear();
+  const m    = now.getMonth(); // 0-based
+  const q    = Math.floor(m / 3);
+  const pad  = (n: number) => String(n + 1).padStart(2, '0');
+
+  switch (p) {
+    case 'month':
+      return { start: `${y}-${pad(m)}`, end: `${y}-${pad(m)}` };
+    case 'quarter':
+      return { start: `${y}-${pad(q * 3)}`, end: `${y}-${pad(q * 3 + 2)}` };
+    case 'next-quarter': {
+      const nq = q + 1;
+      const ny = nq > 3 ? y + 1 : y;
+      const nqn = nq % 4;
+      return { start: `${ny}-${pad(nqn * 3)}`, end: `${ny}-${pad(nqn * 3 + 2)}` };
+    }
+    case 'year':
+      return { start: `${y}-01`, end: `${y}-12` };
+  }
+}
+
+function activePreset(range: { start: string; end: string } | null): RangePreset | null {
+  if (!range) return null;
+  for (const p of ['month', 'quarter', 'next-quarter', 'year'] as RangePreset[]) {
+    const r = presetRange(p);
+    if (r.start === range.start && r.end === range.end) return p;
+  }
+  return null;
+}
+
 // ── Bar position calculator ───────────────────────────────────────────────────
 
 function makePositioner(minMs: number, totalMs: number) {
@@ -269,11 +312,16 @@ function GanttView({ teams, milestoneMap, rangeOverride }: GanttViewProps) {
                     {todayPct !== null && <div className="absolute top-0 bottom-0 w-px bg-red-500/20" style={{ left: `${todayPct}%` }} />}
                     {barVisible ? (
                       <div
-                        className="absolute h-4 rounded"
+                        className="absolute h-4 rounded flex items-center overflow-hidden"
                         style={{ left: `${clampedLeft}%`, width: `${barWidth}%`, backgroundColor: color, opacity: 0.85 }}
                         title={`${project.name}\n${fmtDate(project.startDate)} → ${fmtDate(project.targetDate)}\n${stateLabel(project.state)}`}
                       >
                         <div className="absolute inset-y-0 left-0 rounded opacity-40 bg-white" style={{ width: `${Math.round(project.progress * 100)}%` }} />
+                        {barWidth >= 12 && (
+                          <span className="relative z-10 px-1.5 text-white/90 font-medium whitespace-nowrap overflow-hidden" style={{ fontSize: 9 }}>
+                            {fmtDateShort(project.startDate)} → {fmtDateShort(project.targetDate)}
+                          </span>
+                        )}
                       </div>
                     ) : !hasBar ? (
                       <span className="px-3 text-xs text-slate-600 italic">No dates — Backlog</span>
@@ -642,35 +690,63 @@ export default function GanttPage() {
 
       {/* Date range controls */}
       {autoRange && (
-        <div className="flex items-center gap-3 flex-wrap">
-          <CalendarRange className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-          <span className="text-xs text-slate-500 shrink-0">Date range:</span>
-          <input
-            type="month"
-            value={displayRange?.start ?? ''}
-            min={autoRange.start}
-            max={displayRange?.end ?? autoRange.end}
-            onChange={e => setCustomRange(r => ({ start: e.target.value, end: r?.end ?? autoRange!.end }))}
-            className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
-          />
-          <span className="text-xs text-slate-600">→</span>
-          <input
-            type="month"
-            value={displayRange?.end ?? ''}
-            min={displayRange?.start ?? autoRange.start}
-            max={autoRange.end}
-            onChange={e => setCustomRange(r => ({ start: r?.start ?? autoRange!.start, end: e.target.value }))}
-            className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
-          />
-          {rangeModified && (
-            <button
-              onClick={() => setCustomRange(null)}
-              className="flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              <X className="h-3 w-3" />
-              Reset
-            </button>
-          )}
+        <div className="flex flex-col gap-2">
+          {/* Preset chips */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <CalendarRange className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+            {([
+              { id: 'month',        label: 'This Month' },
+              { id: 'quarter',      label: 'This Quarter' },
+              { id: 'next-quarter', label: 'Next Quarter' },
+              { id: 'year',         label: 'This Year' },
+            ] as { id: RangePreset; label: string }[]).map(({ id, label }) => {
+              const isActive = activePreset(customRange) === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setCustomRange(isActive ? null : presetRange(id))}
+                  className={cn(
+                    'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
+                    isActive
+                      ? 'bg-blue-600/25 text-blue-300 border-blue-500/50'
+                      : 'text-slate-400 border-slate-700 hover:bg-slate-800 hover:text-slate-200'
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {rangeModified && (
+              <button
+                onClick={() => setCustomRange(null)}
+                className="flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <X className="h-3 w-3" />
+                Reset
+              </button>
+            )}
+          </div>
+          {/* Manual pickers */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-600 w-20">Custom range</span>
+            <input
+              type="month"
+              value={displayRange?.start ?? ''}
+              min={autoRange.start}
+              max={displayRange?.end ?? autoRange.end}
+              onChange={e => setCustomRange(r => ({ start: e.target.value, end: r?.end ?? autoRange!.end }))}
+              className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+            />
+            <span className="text-xs text-slate-600">→</span>
+            <input
+              type="month"
+              value={displayRange?.end ?? ''}
+              min={displayRange?.start ?? autoRange.start}
+              max={autoRange.end}
+              onChange={e => setCustomRange(r => ({ start: r?.start ?? autoRange!.start, end: e.target.value }))}
+              className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+            />
+          </div>
         </div>
       )}
 
