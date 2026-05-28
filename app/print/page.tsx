@@ -114,7 +114,7 @@ function GanttSection({ teams, quarterStart, quarterEnd, quarterLabel }: {
   const todayPct = now >= minDate && now <= maxDate ? pct(now) : null;
 
   return (
-    <div style={{ marginTop: 32, pageBreakBefore: 'always' }}>
+    <div style={{ marginTop: 0 }}>
       <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Program Schedule</h2>
       <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>{quarterLabel} · Active projects only · Source: Linear</p>
 
@@ -556,7 +556,7 @@ function buildGanttHTMLSection(
     `<span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#6b7280"><span style="width:8px;height:8px;border-radius:2px;background:${c};display:inline-block"></span>${GANTT_STATE_LABEL[k]}</span>`
   ).join('');
 
-  return `<div style="margin-top:40px;page-break-before:always">
+  return `<div style="margin-top:40px;page-break-before:always;break-before:page">
   <h2 style="font-size:16px;font-weight:700;color:#111827;margin:0 0 4px">Program Schedule</h2>
   <p style="font-size:11px;color:#6b7280;margin:0 0 12px">${esc(quarterLabel)} · Active projects only · Source: Linear</p>
   <div style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;font-size:11px">
@@ -742,7 +742,7 @@ ${matrixHtml}
 ${topRisksHtml}
 
 <!-- Page 2: Project Detail -->
-<div style="margin-top:40px;page-break-before:always">
+<div style="margin-top:40px;page-break-before:always;break-before:page">
   <h2 style="font-size:16px;font-weight:700;color:#111827;margin:0 0 4px">Project Detail</h2>
   <p style="font-size:11px;color:#6b7280;margin:0 0 20px">All active projects · Source: Linear</p>
   ${teamSections}
@@ -911,7 +911,7 @@ export default function PrintPage() {
             <div className="no-print page-divider">Page 2 — Project Detail</div>
 
             {/* Page 2: Project Detail */}
-            <div className="page-card" style={{ pageBreakBefore: 'always' }}>
+            <div className="page-card" style={{ pageBreakBefore: 'always', breakBefore: 'page' }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Project Detail</h2>
               <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 20 }}>All active projects · Source: Linear</p>
               {teams.map(team => <TeamSection key={team.id} team={team} />)}
@@ -924,7 +924,7 @@ export default function PrintPage() {
 
             {/* Page 3: Gantt */}
             {ganttTeams.length > 0 && (
-              <div className="page-card" style={{ pageBreakBefore: 'always' }}>
+              <div className="page-card" style={{ pageBreakBefore: 'always', breakBefore: 'page' }}>
                 <GanttSection
                   teams={ganttTeams}
                   quarterStart={quarter.start}
