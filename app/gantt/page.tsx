@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { GanttChart, Download, RefreshCw } from 'lucide-react';
+import { GanttChart, Download, RefreshCw, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -45,6 +45,58 @@ const STATE_LABEL: Record<string, string> = {
 function stateColor(s: string) { return STATE_COLOR[s] ?? '#bdc3c7'; }
 function stateLabel(s: string) { return STATE_LABEL[s] ?? s; }
 
+// ── SDEAT use-case grouping ───────────────────────────────────────────────────
+
+const SDE_USE_CASES: { name: string; terms: string[]; color: string }[] = [
+  { name: 'UC1 — TIPC: Task Financial Planning & Management', terms: ['use case #1','tipc','1c)','1d)','1e)','1f)'], color: '#5c6bc0' },
+  { name: 'UC2 — WLP: Workload Planning',                    terms: ['use case #2','wlp'],                          color: '#42a5f5' },
+  { name: 'UC3 — ILS: Integrated Logistics Support',         terms: ['use case #3','ils'],                          color: '#ab47bc' },
+  { name: 'UC4 — OOQ: Quality Assurance',                    terms: ['use case #4','ooq'],                          color: '#ec407a' },
+  { name: 'UC5 — Fleet Tasking Management',                  terms: ['1g)','1h)'],                                  color: '#ff7043' },
+  { name: 'UC6 — Funding Document Acceptance',               terms: ['1b)'],                                        color: '#26a69a' },
+  { name: 'Program Management',                              terms: [],                                             color: '#78909c' },
+];
+
+function applyUseCaseGrouping(teams: GanttTeam[]): GanttTeam[] {
+  // Only applies when a single SDE team is loaded
+  if (teams.length !== 1 || teams[0].key !== 'SDE') return teams;
+
+  const projects = teams[0].projects.nodes;
+  const groups: GanttTeam[] = SDE_USE_CASES.map(uc => ({
+    id:       uc.name,
+    name:     uc.name,
+    key:      'SDE',
+    color:    uc.color,
+    projects: { nodes: [] },
+  }));
+  const catchAll = groups[groups.length - 1];
+
+  for (const p of projects) {
+    const lower = p.name.toLowerCase();
+    let placed = false;
+    for (let i = 0; i < groups.length - 1; i++) {
+      if (SDE_USE_CASES[i].terms.some(t => lower.includes(t))) {
+        groups[i].projects.nodes.push(p);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) catchAll.projects.nodes.push(p);
+  }
+
+  // Sort each group by startDate asc (nulls last)
+  for (const g of groups) {
+    g.projects.nodes.sort((a, b) => {
+      if (!a.startDate && !b.startDate) return 0;
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    });
+  }
+
+  return groups.filter(g => g.projects.nodes.length > 0);
+}
+
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
 function parseUTC(iso: string | null): Date | null {
@@ -79,42 +131,32 @@ function makePositioner(minMs: number, totalMs: number) {
 
 // ── Gantt chart component ─────────────────────────────────────────────────────
 
-const NAME_W = 260; // px
+const NAME_W = 260;
 
 function GanttView({ teams }: { teams: GanttTeam[] }) {
-  // Compute overall date range across all visible projects
-  const { minDate, maxDate, months, todayPct, pct } = useMemo(() => {
+  const { months, todayPct, pct } = useMemo(() => {
     const allProjects = teams.flatMap(t => t.projects.nodes);
     const starts = allProjects.map(p => parseUTC(p.startDate)).filter(Boolean) as Date[];
     const ends   = allProjects.map(p => parseUTC(p.targetDate)).filter(Boolean) as Date[];
 
-    if (!starts.length && !ends.length) return { minDate: null, maxDate: null, months: [], todayPct: null, pct: null };
+    if (!starts.length && !ends.length) return { months: [], todayPct: null, pct: null };
 
-    const rawMin = new Date(Math.min(...starts.map(d => d.getTime())));
-    const rawMax = new Date(Math.max(...ends.map(d => d.getTime())));
-    const minDate = startOfMonthUTC(rawMin);
-    const maxDate = addMonthsUTC(rawMax, 1); // extend to end of last month
-
+    const minDate = startOfMonthUTC(new Date(Math.min(...starts.map(d => d.getTime()))));
+    const maxDate = addMonthsUTC(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
     const totalMs = maxDate.getTime() - minDate.getTime();
-    const pct = makePositioner(minDate.getTime(), totalMs);
+    const pct     = makePositioner(minDate.getTime(), totalMs);
 
-    // Month ticks
     const months: { label: string; left: number; width: number }[] = [];
     let cur = new Date(minDate);
     while (cur < maxDate) {
       const next = addMonthsUTC(cur, 1);
-      months.push({
-        label: fmtMonth(cur),
-        left:  pct(cur),
-        width: ((next.getTime() - cur.getTime()) / totalMs) * 100,
-      });
+      months.push({ label: fmtMonth(cur), left: pct(cur), width: ((next.getTime() - cur.getTime()) / totalMs) * 100 });
       cur = next;
     }
 
     const now = new Date();
     const todayPct = now >= minDate && now <= maxDate ? pct(now) : null;
-
-    return { minDate, maxDate, months, todayPct, pct };
+    return { months, todayPct, pct };
   }, [teams]);
 
   if (!pct) {
@@ -129,30 +171,17 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
     <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 overflow-hidden">
       {/* Sticky month header */}
       <div className="flex border-b border-slate-700/50 bg-slate-900/60 sticky top-0 z-10">
-        <div
-          className="shrink-0 border-r border-slate-700/50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500"
-          style={{ width: NAME_W }}
-        >
+        <div className="shrink-0 border-r border-slate-700/50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500" style={{ width: NAME_W }}>
           Project
         </div>
         <div className="relative flex-1 h-8 overflow-hidden">
           {months.map(m => (
-            <div
-              key={m.label}
-              className="absolute top-0 h-full border-l border-slate-700/40 px-1.5 flex items-center"
-              style={{ left: `${m.left}%`, width: `${m.width}%` }}
-            >
-              <span className="text-xs text-slate-500 font-medium whitespace-nowrap overflow-hidden">
-                {m.label}
-              </span>
+            <div key={m.label} className="absolute top-0 h-full border-l border-slate-700/40 px-1.5 flex items-center" style={{ left: `${m.left}%`, width: `${m.width}%` }}>
+              <span className="text-xs text-slate-500 font-medium whitespace-nowrap overflow-hidden">{m.label}</span>
             </div>
           ))}
           {todayPct !== null && (
-            <div
-              className="absolute top-0 bottom-0 w-px bg-red-500/60 z-10"
-              style={{ left: `${todayPct}%` }}
-              title="Today"
-            />
+            <div className="absolute top-0 bottom-0 w-px bg-red-500/60 z-10" style={{ left: `${todayPct}%` }} title="Today" />
           )}
         </div>
       </div>
@@ -161,44 +190,26 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
       <div className="overflow-x-auto">
         {teams.map(team => (
           <div key={team.id}>
-            {/* Team header */}
-            <div
-              className="flex items-center border-b border-slate-700/30"
-              style={{ backgroundColor: `${team.color}18` }}
-            >
-              <div
-                className="shrink-0 flex items-center gap-2 border-r border-slate-700/40 px-3 py-2"
-                style={{ width: NAME_W }}
-              >
+            {/* Group / team header */}
+            <div className="flex items-center border-b border-slate-700/30" style={{ backgroundColor: `${team.color}18` }}>
+              <div className="shrink-0 flex items-center gap-2 border-r border-slate-700/40 px-3 py-2" style={{ width: NAME_W }}>
                 <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: team.color }} />
-                <span className="text-xs font-bold text-slate-200">{team.name}</span>
-                <span
-                  className="rounded px-1.5 py-0.5 font-mono text-xs"
-                  style={{ color: team.color, backgroundColor: `${team.color}25` }}
-                >
-                  {team.key}
-                </span>
-                <span className="ml-auto text-xs text-slate-600">{team.projects.nodes.length}</span>
+                <span className="text-xs font-bold text-slate-200 truncate">{team.name}</span>
+                {team.key !== team.name && (
+                  <span className="ml-auto shrink-0 rounded px-1.5 py-0.5 font-mono text-xs" style={{ color: team.color, backgroundColor: `${team.color}25` }}>
+                    {team.key}
+                  </span>
+                )}
+                <span className="ml-auto text-xs text-slate-600 shrink-0">{team.projects.nodes.length}</span>
               </div>
               <div className="relative flex-1 h-9">
-                {todayPct !== null && (
-                  <div className="absolute top-0 bottom-0 w-px bg-red-500/30" style={{ left: `${todayPct}%` }} />
-                )}
+                {todayPct !== null && <div className="absolute top-0 bottom-0 w-px bg-red-500/30" style={{ left: `${todayPct}%` }} />}
               </div>
             </div>
 
-            {/* Project rows */}
             {team.projects.nodes.length === 0 && (
-              <div
-                className="flex border-b border-slate-700/20"
-                style={{ minHeight: 32 }}
-              >
-                <div
-                  className="shrink-0 border-r border-slate-700/30 px-3 py-2 text-xs text-slate-600 italic"
-                  style={{ width: NAME_W }}
-                >
-                  No projects
-                </div>
+              <div className="flex border-b border-slate-700/20" style={{ minHeight: 32 }}>
+                <div className="shrink-0 border-r border-slate-700/30 px-3 py-2 text-xs text-slate-600 italic" style={{ width: NAME_W }}>No projects</div>
                 <div className="flex-1" />
               </div>
             )}
@@ -207,53 +218,25 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
               const s = parseUTC(project.startDate);
               const e = parseUTC(project.targetDate);
               const hasBar = s && e;
-              const color = stateColor(project.state);
-
+              const color  = stateColor(project.state);
               const barLeft  = hasBar ? pct(s!) : 0;
-              const barRight = hasBar ? pct(e!) : 0;
-              const barWidth = Math.max(0.3, barRight - barLeft);
+              const barWidth = hasBar ? Math.max(0.3, pct(e!) - pct(s!)) : 0;
 
               return (
-                <div
-                  key={project.id}
-                  className="flex border-b border-slate-700/20 group hover:bg-slate-800/40 transition-colors"
-                  style={{ minHeight: 30 }}
-                >
-                  {/* Name cell */}
-                  <div
-                    className="shrink-0 flex items-center gap-2 border-r border-slate-700/30 px-3 py-1.5"
-                    style={{ width: NAME_W }}
-                  >
-                    <span
-                      className="h-2 w-2 rounded-full shrink-0"
-                      style={{ backgroundColor: color }}
-                      title={stateLabel(project.state)}
-                    />
-                    <span className="text-xs text-slate-300 truncate" title={project.name}>
-                      {project.name}
-                    </span>
+                <div key={project.id} className="flex border-b border-slate-700/20 hover:bg-slate-800/40 transition-colors" style={{ minHeight: 30 }}>
+                  <div className="shrink-0 flex items-center gap-2 border-r border-slate-700/30 px-3 py-1.5" style={{ width: NAME_W }}>
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} title={stateLabel(project.state)} />
+                    <span className="text-xs text-slate-300 truncate" title={project.name}>{project.name}</span>
                   </div>
-
-                  {/* Bar area */}
                   <div className="relative flex-1 flex items-center">
-                    {todayPct !== null && (
-                      <div
-                        className="absolute top-0 bottom-0 w-px bg-red-500/20"
-                        style={{ left: `${todayPct}%` }}
-                      />
-                    )}
-
+                    {todayPct !== null && <div className="absolute top-0 bottom-0 w-px bg-red-500/20" style={{ left: `${todayPct}%` }} />}
                     {hasBar ? (
                       <div
                         className="absolute h-4 rounded"
                         style={{ left: `${barLeft}%`, width: `${barWidth}%`, backgroundColor: color, opacity: 0.85 }}
                         title={`${project.name}\n${fmtDate(project.startDate)} → ${fmtDate(project.targetDate)}\n${stateLabel(project.state)}`}
                       >
-                        {/* Progress fill */}
-                        <div
-                          className="absolute inset-y-0 left-0 rounded opacity-40 bg-white"
-                          style={{ width: `${Math.round(project.progress * 100)}%` }}
-                        />
+                        <div className="absolute inset-y-0 left-0 rounded opacity-40 bg-white" style={{ width: `${Math.round(project.progress * 100)}%` }} />
                       </div>
                     ) : (
                       <span className="px-3 text-xs text-slate-600 italic">No dates — Backlog</span>
@@ -268,14 +251,12 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
 
       {/* Legend */}
       <div className="flex items-center gap-4 px-3 py-2 border-t border-slate-700/40 bg-slate-900/30 flex-wrap">
-        {Object.entries(STATE_COLOR)
-          .filter(([k]) => k !== 'cancelled')
-          .map(([k, color]) => (
-            <div key={k} className="flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: color }} />
-              <span className="text-xs text-slate-500">{STATE_LABEL[k]}</span>
-            </div>
-          ))}
+        {Object.entries(STATE_COLOR).filter(([k]) => k !== 'cancelled').map(([k, color]) => (
+          <div key={k} className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: color }} />
+            <span className="text-xs text-slate-500">{STATE_LABEL[k]}</span>
+          </div>
+        ))}
         {todayPct !== null && (
           <div className="flex items-center gap-1.5">
             <span className="h-2.5 w-0.5 bg-red-500/60 rounded" />
@@ -288,21 +269,21 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
   );
 }
 
-// ── HTML export generator (client-side) ───────────────────────────────────────
+// ── Export: HTML ──────────────────────────────────────────────────────────────
 
 function generateExportHTML(teams: GanttTeam[], selectionLabel: string): string {
-  const today = new Date();
+  const today    = new Date();
   const todayStr = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const allProjects = teams.flatMap(t => t.projects.nodes);
-  const starts = allProjects.map(p => parseUTC(p.startDate)).filter(Boolean) as Date[];
-  const ends   = allProjects.map(p => parseUTC(p.targetDate)).filter(Boolean) as Date[];
+  const starts   = allProjects.map(p => parseUTC(p.startDate)).filter(Boolean) as Date[];
+  const ends     = allProjects.map(p => parseUTC(p.targetDate)).filter(Boolean) as Date[];
 
   if (!starts.length && !ends.length) return '<html><body><p>No projects with dates.</p></body></html>';
 
-  const minDate  = startOfMonthUTC(new Date(Math.min(...starts.map(d => d.getTime()))));
-  const maxDate  = addMonthsUTC(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
-  const totalMs  = maxDate.getTime() - minDate.getTime();
-  const pct      = makePositioner(minDate.getTime(), totalMs);
+  const minDate = startOfMonthUTC(new Date(Math.min(...starts.map(d => d.getTime()))));
+  const maxDate = addMonthsUTC(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
+  const totalMs = maxDate.getTime() - minDate.getTime();
+  const pct     = makePositioner(minDate.getTime(), totalMs);
 
   const months: { label: string; left: number; width: number }[] = [];
   let cur = new Date(minDate);
@@ -312,24 +293,23 @@ function generateExportHTML(teams: GanttTeam[], selectionLabel: string): string 
     cur = next;
   }
 
-  const todayPct = today >= minDate && today <= maxDate ? pct(today) : null;
-
-  const esc = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const todayPct    = today >= minDate && today <= maxDate ? pct(today) : null;
+  const esc         = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const todayLine   = (pct: number) => `<div style="position:absolute;top:0;bottom:0;width:1px;background:#e74c3c88;left:${pct.toFixed(3)}%;z-index:5;"></div>`;
 
   let rows = '';
   for (const team of teams) {
-    rows += `<tr style="background:${team.color}18">
-      <td style="width:260px;padding:6px 10px;font-weight:700;font-size:11px;color:#fff;background:${team.color}cc;border-right:1px solid #555;">
-        ${esc(team.name)} <span style="font-weight:400;opacity:.7">${esc(team.key)}</span>
+    rows += `<tr>
+      <td colspan="2" style="padding:6px 10px;font-weight:700;font-size:11px;color:#fff;background:${team.color}cc;border-bottom:1px solid #555;">
+        ${esc(team.name)}${team.key !== team.name ? ` <span style="opacity:.6;font-weight:400;">${esc(team.key)}</span>` : ''}
       </td>
-      <td style="background:${team.color}18;"></td>
     </tr>`;
 
     for (const p of team.projects.nodes) {
       const s = parseUTC(p.startDate);
       const e = parseUTC(p.targetDate);
-      const color = stateColor(p.state);
-      const hasBar = s && e;
+      const color    = stateColor(p.state);
+      const hasBar   = s && e;
       const barLeft  = hasBar ? pct(s!).toFixed(3) : '0';
       const barWidth = hasBar ? Math.max(0.3, pct(e!) - pct(s!)).toFixed(3) : '0';
 
@@ -339,8 +319,10 @@ function generateExportHTML(teams: GanttTeam[], selectionLabel: string): string 
         </td>
         <td style="position:relative;border-bottom:1px solid #2a2a2a;">
           <div style="position:relative;height:16px;width:100%;">
-            ${todayPct !== null ? `<div style="position:absolute;top:0;bottom:0;width:1px;background:#e74c3c88;left:${todayPct.toFixed(3)}%;z-index:5;"></div>` : ''}
-            ${hasBar ? `<div style="position:absolute;left:${barLeft}%;width:${barWidth}%;height:100%;background:${color};border-radius:2px;opacity:.85;" title="${esc(p.name)} | ${fmtDate(p.startDate)} → ${fmtDate(p.targetDate)}"></div>` : `<span style="font-size:9px;color:#555;font-style:italic;padding-left:8px;">No dates — Backlog</span>`}
+            ${todayPct !== null ? todayLine(todayPct) : ''}
+            ${hasBar
+              ? `<div style="position:absolute;left:${barLeft}%;width:${barWidth}%;height:100%;background:${color};border-radius:2px;opacity:.85;" title="${esc(p.name)} | ${fmtDate(p.startDate)} → ${fmtDate(p.targetDate)} | ${esc(stateLabel(p.state))}"></div>`
+              : `<span style="font-size:9px;color:#555;font-style:italic;padding-left:8px;">No dates — Backlog</span>`}
           </div>
         </td>
       </tr>`;
@@ -362,29 +344,56 @@ body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;font-size:12px;backgr
 h1{font-size:16px;font-weight:700;margin-bottom:3px;}
 .meta{font-size:10px;color:#666;margin-bottom:14px;}
 .legend{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;align-items:center;}
-.legend-item{display:flex;align-items:center;gap:5px;font-size:10px;color:#999;}
 .dot{width:10px;height:10px;border-radius:3px;}
 table{width:100%;border-collapse:collapse;}
-@media print{body{background:#fff;color:#000;padding:12px;}h1{font-size:14px;}}
+@media print{body{background:#fff;color:#000;padding:12px;}}
 </style>
 </head>
 <body>
 <h1>Program Gantt — ${esc(selectionLabel)}</h1>
 <p class="meta">Generated: ${todayStr} &nbsp;·&nbsp; Source: Linear</p>
 <div class="legend">
-  ${Object.entries(STATE_COLOR).filter(([k])=>k!=='cancelled').map(([k,c])=>`<div class="legend-item"><div class="dot" style="background:${c}"></div>${STATE_LABEL[k]}</div>`).join('')}
-  ${todayPct !== null ? '<div class="legend-item"><div style="width:2px;height:12px;background:#e74c3c;margin-right:3px;"></div>Today</div>' : ''}
+  ${Object.entries(STATE_COLOR).filter(([k])=>k!=='cancelled').map(([k,c])=>`<span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#999;"><span class="dot" style="background:${c};"></span>${STATE_LABEL[k]}</span>`).join('')}
+  ${todayPct !== null ? '<span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;color:#999;"><span style="width:2px;height:12px;background:#e74c3c;display:inline-block;"></span>Today</span>' : ''}
 </div>
-
-<div style="display:flex;margin-bottom:0;">
+<div style="display:flex;">
   <div style="width:260px;min-width:260px;flex-shrink:0;padding:4px 10px;font-size:9px;font-weight:700;color:#888;border-right:1px solid #333;border-bottom:2px solid #444;background:#1a1a1a;">PROJECT</div>
-  <div style="flex:1;position:relative;height:22px;border-bottom:2px solid #444;background:#1a1a1a;overflow:hidden;">
-    ${monthHeaders}
-  </div>
+  <div style="flex:1;position:relative;height:22px;border-bottom:2px solid #444;background:#1a1a1a;overflow:hidden;">${monthHeaders}</div>
 </div>
 <table><tbody>${rows}</tbody></table>
 </body>
 </html>`;
+}
+
+// ── Export: plain text summary ────────────────────────────────────────────────
+
+function generateExportTXT(teams: GanttTeam[], selectionLabel: string): string {
+  const todayStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const lines = [
+    `Program Schedule — ${selectionLabel}`,
+    `Generated: ${todayStr}  |  Source: Linear`,
+    '',
+    ['Group / Team', 'Project', 'Start', 'End', 'Status'].join('\t'),
+    ['------------', '-------', '-----', '---', '------'].join('\t'),
+  ];
+  for (const team of teams) {
+    for (const p of team.projects.nodes) {
+      lines.push([team.name, p.name, p.startDate ?? '—', p.targetDate ?? '—', stateLabel(p.state)].join('\t'));
+    }
+  }
+  return lines.join('\n');
+}
+
+// ── Download helper ───────────────────────────────────────────────────────────
+
+function triggerDownload(content: string, mimeType: string, filename: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -393,10 +402,10 @@ interface TeamMeta { id: string; name: string; key: string; color: string }
 
 export default function GanttPage() {
   const [allTeamMeta, setAllTeamMeta] = useState<TeamMeta[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null); // null = all
-  const [teams, setTeams] = useState<GanttTeam[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [rawTeams, setRawTeams]   = useState<GanttTeam[]>([]);
+  const [loading,  setLoading]    = useState(true);
+  const [error,    setError]      = useState<string | null>(null);
 
   const load = useCallback(async (teamId: string | null) => {
     setLoading(true);
@@ -410,9 +419,7 @@ export default function GanttPage() {
       }
       const json = await res.json();
       const loaded: GanttTeam[] = json.teams ?? [];
-      setTeams(loaded);
-
-      // Build team metadata list from first full load (all teams)
+      setRawTeams(loaded);
       if (!teamId && loaded.length > 0) {
         setAllTeamMeta(loaded.map(t => ({ id: t.id, name: t.name, key: t.key, color: t.color })));
       }
@@ -430,28 +437,19 @@ export default function GanttPage() {
     load(id);
   }
 
+  // Apply SDEAT use-case grouping when the SDE team is selected
+  const teams = useMemo(() => applyUseCaseGrouping(rawTeams), [rawTeams]);
+
   const selectionLabel = useMemo(() => {
     if (!selectedTeamId) return 'All Teams';
     return allTeamMeta.find(t => t.id === selectedTeamId)?.name ?? 'Selected Team';
   }, [selectedTeamId, allTeamMeta]);
 
-  function handleExport() {
-    const html = generateExportHTML(teams, selectionLabel);
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    const slug = selectionLabel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    const date = new Date().toISOString().slice(0, 10);
-    a.href     = url;
-    a.download = `gantt-${slug}-${date}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  const dateSlug = new Date().toISOString().slice(0, 10);
+  const nameSlug = selectionLabel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-  const totalProjects = teams.reduce((n, t) => n + t.projects.nodes.length, 0);
-  const withDates = teams
-    .flatMap(t => t.projects.nodes)
-    .filter(p => p.startDate && p.targetDate).length;
+  const totalProjects = rawTeams.reduce((n, t) => n + t.projects.nodes.length, 0);
+  const withDates     = rawTeams.flatMap(t => t.projects.nodes).filter(p => p.startDate && p.targetDate).length;
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -466,7 +464,7 @@ export default function GanttPage() {
             {loading ? 'Loading…' : `${selectionLabel} · ${totalProjects} projects · ${withDates} with dates`}
           </p>
         </div>
-        <div className="flex items-center gap-2 mt-2 sm:mt-0">
+        <div className="flex items-center gap-2 mt-2 sm:mt-0 flex-wrap">
           <button
             onClick={() => load(selectedTeamId)}
             disabled={loading}
@@ -476,7 +474,15 @@ export default function GanttPage() {
             Refresh
           </button>
           <button
-            onClick={handleExport}
+            onClick={() => triggerDownload(generateExportTXT(teams, selectionLabel), 'text/plain;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.txt`)}
+            disabled={loading || teams.length === 0}
+            className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-50 transition-colors"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Export TXT
+          </button>
+          <button
+            onClick={() => triggerDownload(generateExportHTML(teams, selectionLabel), 'text/html;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.html`)}
             disabled={loading || teams.length === 0}
             className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
           >
@@ -506,15 +512,9 @@ export default function GanttPage() {
               onClick={() => selectTeam(t.id)}
               className={cn(
                 'rounded-md border px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1.5',
-                selectedTeamId === t.id
-                  ? 'border-opacity-60 text-white'
-                  : 'text-slate-400 border-slate-700 hover:bg-slate-800'
+                selectedTeamId !== t.id && 'text-slate-400 border-slate-700 hover:bg-slate-800'
               )}
-              style={selectedTeamId === t.id ? {
-                backgroundColor: `${t.color}25`,
-                borderColor: `${t.color}80`,
-                color: t.color,
-              } : {}}
+              style={selectedTeamId === t.id ? { backgroundColor: `${t.color}25`, borderColor: `${t.color}80`, color: t.color } : {}}
             >
               <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
               {t.name}
