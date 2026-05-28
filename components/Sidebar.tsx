@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Settings, Shield, AlertTriangle, CalendarClock, GanttChart, AlignLeft, Printer, Users, Target } from 'lucide-react';
+import { Settings, Shield, AlertTriangle, CalendarClock, GanttChart, Printer, Users, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAttentionCount, useTimelineBeyondCount } from '@/lib/useAttentionCount';
+import { useAttentionCount } from '@/lib/useAttentionCount';
 
 interface NavItem {
   href: string;
@@ -34,12 +34,6 @@ const NAV_ITEMS: NavItem[] = [
     exact: true,
   },
   {
-    href: '/timeline',
-    label: 'Timeline',
-    icon: <AlignLeft className="h-4 w-4" />,
-    exact: true,
-  },
-  {
     href: '/workload',
     label: 'Billable Hours',
     icon: <Users className="h-4 w-4" />,
@@ -66,8 +60,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const attentionCount   = useAttentionCount();
-  const timelineBeyond  = useTimelineBeyondCount();
+  const attentionCount = useAttentionCount();
 
   function isActive(item: NavItem): boolean {
     if (item.exact) return pathname === item.href;
@@ -92,9 +85,7 @@ export function Sidebar() {
         {NAV_ITEMS.map((item) => {
           const active = isActive(item);
           const isAttention = item.href === '/attention';
-          const isTimeline  = item.href === '/timeline';
-          const showBadge         = isAttention && attentionCount  !== null && attentionCount  > 0;
-          const showTimelineBadge = isTimeline  && timelineBeyond  !== null && timelineBeyond  > 0;
+          const showBadge = isAttention && attentionCount !== null && attentionCount > 0;
           return (
             <Link
               key={item.href}
@@ -115,11 +106,6 @@ export function Sidebar() {
               {showBadge && (
                 <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-bold text-white tabular-nums">
                   {attentionCount}
-                </span>
-              )}
-              {showTimelineBadge && (
-                <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-slate-600 px-1.5 text-xs font-bold text-white tabular-nums">
-                  {timelineBeyond}
                 </span>
               )}
             </Link>
