@@ -15,6 +15,240 @@ import {
 } from '@/lib/utils';
 import type { Team, Project } from '@/lib/types';
 
+// ── Gantt types + helpers (light-theme inline chart) ─────────────────────────
+
+interface PrintGanttProject {
+  id: string; name: string; state: string;
+  startDate: string | null; targetDate: string | null; progress: number;
+}
+interface PrintGanttTeam {
+  id: string; name: string; key: string; color: string;
+  projects: { nodes: PrintGanttProject[] };
+}
+
+const GANTT_STATE_COLOR: Record<string, string> = {
+  started: '#16a34a', planned: '#2563eb', paused: '#9ca3af',
+  cancelled: '#9ca3af', completed: '#6b7280',
+};
+const GANTT_STATE_LABEL: Record<string, string> = {
+  started: 'In Progress', planned: 'Planned', paused: 'On Hold',
+  cancelled: 'Cancelled', completed: 'Completed',
+};
+function gStateColor(s: string) { return GANTT_STATE_COLOR[s] ?? '#9ca3af'; }
+function gStateLabel(s: string) { return GANTT_STATE_LABEL[s] ?? s; }
+
+function gParseUTC(iso: string | null): Date | null {
+  if (!iso) return null;
+  return new Date(iso + 'T00:00:00Z');
+}
+function gStartOfMonth(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+function gAddMonths(d: Date, n: number) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1));
+}
+function gFmtMonth(d: Date) {
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+function gFmtDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+const GANTT_NAME_W = 220;
+
+function GanttSection({ teams }: { teams: PrintGanttTeam[] }) {
+  const allProjects = teams.flatMap(t => t.projects.nodes);
+  const starts = allProjects.map(p => gParseUTC(p.startDate)).filter(Boolean) as Date[];
+  const ends   = allProjects.map(p => gParseUTC(p.targetDate)).filter(Boolean) as Date[];
+  if (!starts.length && !ends.length) return null;
+
+  const minDate  = gStartOfMonth(new Date(Math.min(...starts.map(d => d.getTime()))));
+  const maxDate  = gAddMonths(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
+  const totalMs  = maxDate.getTime() - minDate.getTime();
+  const pct      = (d: Date) => ((d.getTime() - minDate.getTime()) / totalMs) * 100;
+
+  const months: { label: string; left: number; width: number }[] = [];
+  let cur = new Date(minDate);
+  while (cur < maxDate) {
+    const next = gAddMonths(cur, 1);
+    months.push({ label: gFmtMonth(cur), left: pct(cur), width: ((next.getTime() - cur.getTime()) / totalMs) * 100 });
+    cur = next;
+  }
+
+  const now = new Date();
+  const todayPct = now >= minDate && now <= maxDate ? pct(now) : null;
+
+  return (
+    <div style={{ marginTop: 32, pageBreakBefore: 'always' }}>
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Program Schedule</h2>
+      <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>All teams · Source: Linear</p>
+
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden', fontSize: 11 }}>
+        {/* Month header */}
+        <div style={{ display: 'flex', borderBottom: '2px solid #e5e7eb', background: '#f9fafb' }}>
+          <div style={{ width: GANTT_NAME_W, minWidth: GANTT_NAME_W, padding: '4px 8px', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af', borderRight: '1px solid #e5e7eb' }}>
+            Project
+          </div>
+          <div style={{ flex: 1, position: 'relative', height: 24, overflow: 'hidden' }}>
+            {months.map(m => (
+              <div key={m.label} style={{ position: 'absolute', left: `${m.left}%`, width: `${m.width}%`, top: 0, height: '100%', borderLeft: '1px solid #e5e7eb', padding: '4px 3px', overflow: 'hidden' }}>
+                <span style={{ fontSize: 9, color: '#9ca3af', whiteSpace: 'nowrap' }}>{m.label}</span>
+              </div>
+            ))}
+            {todayPct !== null && <div style={{ position: 'absolute', top: 0, bottom: 0, width: 1, background: '#ef4444', opacity: 0.6, left: `${todayPct}%` }} />}
+          </div>
+        </div>
+
+        {/* Rows */}
+        {teams.map(team => (
+          <div key={team.id}>
+            <div style={{ display: 'flex', background: `${team.color}12`, borderBottom: '1px solid #e5e7eb' }}>
+              <div style={{ width: GANTT_NAME_W, minWidth: GANTT_NAME_W, padding: '4px 8px', borderRight: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: team.color, flexShrink: 0, display: 'inline-block' }} />
+                <span style={{ fontWeight: 700, color: '#111827', fontSize: 11 }}>{team.name}</span>
+                {team.key !== team.name && <span style={{ fontSize: 9, fontFamily: 'monospace', color: team.color, marginLeft: 4 }}>{team.key}</span>}
+              </div>
+              <div style={{ flex: 1, position: 'relative', minHeight: 22 }}>
+                {todayPct !== null && <div style={{ position: 'absolute', top: 0, bottom: 0, width: 1, background: '#ef444430', left: `${todayPct}%` }} />}
+              </div>
+            </div>
+            {team.projects.nodes.map(p => {
+              const s = gParseUTC(p.startDate);
+              const e = gParseUTC(p.targetDate);
+              const hasBar = s && e;
+              const color  = gStateColor(p.state);
+              const barLeft  = hasBar ? Math.max(0, pct(s!)) : 0;
+              const barRight = hasBar ? Math.min(100, pct(e!)) : 0;
+              const barWidth = hasBar ? Math.max(0.3, barRight - barLeft) : 0;
+              const barVisible = hasBar && barRight > 0 && barLeft < 100;
+              return (
+                <div key={p.id} style={{ display: 'flex', borderBottom: '1px solid #f3f4f6', minHeight: 22 }}>
+                  <div style={{ width: GANTT_NAME_W, minWidth: GANTT_NAME_W, padding: '3px 8px', borderRight: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} title={gStateLabel(p.state)} />
+                    <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.name}>{p.name}</span>
+                  </div>
+                  <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    {todayPct !== null && <div style={{ position: 'absolute', top: 0, bottom: 0, width: 1, background: '#ef444418', left: `${todayPct}%` }} />}
+                    {barVisible && (
+                      <div style={{ position: 'absolute', left: `${barLeft}%`, width: `${barWidth}%`, height: 12, background: color, borderRadius: 2, opacity: 0.8 }} title={`${p.name} · ${gFmtDate(p.startDate)} → ${gFmtDate(p.targetDate)}`}>
+                        <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'white', opacity: 0.35, width: `${Math.round(p.progress * 100)}%` }} />
+                      </div>
+                    )}
+                    {!hasBar && <span style={{ fontSize: 9, color: '#d1d5db', fontStyle: 'italic', paddingLeft: 8 }}>No dates</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+
+        {/* Legend */}
+        <div style={{ display: 'flex', gap: 16, padding: '6px 8px', borderTop: '1px solid #e5e7eb', background: '#f9fafb', flexWrap: 'wrap' }}>
+          {Object.entries(GANTT_STATE_COLOR).filter(([k]) => k !== 'cancelled').map(([k, c]) => (
+            <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, color: '#6b7280' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: 'inline-block' }} />
+              {GANTT_STATE_LABEL[k]}
+            </span>
+          ))}
+          {todayPct !== null && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 9, color: '#6b7280' }}>
+              <span style={{ width: 1, height: 10, background: '#ef4444', display: 'inline-block' }} />
+              Today
+            </span>
+          )}
+          <span style={{ marginLeft: 'auto', fontSize: 9, color: '#d1d5db' }}>White fill = progress</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Gantt HTML section for standalone export ──────────────────────────────────
+
+function buildGanttHTMLSection(teams: PrintGanttTeam[]): string {
+  const esc = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const allProjects = teams.flatMap(t => t.projects.nodes);
+  const starts = allProjects.map(p => gParseUTC(p.startDate)).filter(Boolean) as Date[];
+  const ends   = allProjects.map(p => gParseUTC(p.targetDate)).filter(Boolean) as Date[];
+  if (!starts.length && !ends.length) return '';
+
+  const minDate = gStartOfMonth(new Date(Math.min(...starts.map(d => d.getTime()))));
+  const maxDate = gAddMonths(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
+  const totalMs = maxDate.getTime() - minDate.getTime();
+  const pct     = (d: Date) => ((d.getTime() - minDate.getTime()) / totalMs) * 100;
+
+  const months: { label: string; left: number; width: number }[] = [];
+  let cur = new Date(minDate);
+  while (cur < maxDate) {
+    const next = gAddMonths(cur, 1);
+    months.push({ label: gFmtMonth(cur), left: pct(cur), width: ((next.getTime() - cur.getTime()) / totalMs) * 100 });
+    cur = next;
+  }
+  const now = new Date();
+  const todayPct = now >= minDate && now <= maxDate ? pct(now) : null;
+  const todayLine = (p: number) => `<div style="position:absolute;top:0;bottom:0;width:1px;background:#ef444460;left:${p.toFixed(2)}%"></div>`;
+
+  const monthHeaders = months.map(m =>
+    `<div style="position:absolute;left:${m.left.toFixed(2)}%;width:${m.width.toFixed(2)}%;top:0;height:100%;border-left:1px solid #e5e7eb;padding:4px 3px;overflow:hidden;"><span style="font-size:9px;color:#9ca3af;white-space:nowrap">${esc(m.label)}</span></div>`
+  ).join('');
+
+  let rows = '';
+  for (const team of teams) {
+    rows += `<div style="display:flex;background:${team.color}12;border-bottom:1px solid #e5e7eb;">
+      <div style="width:220px;min-width:220px;padding:4px 8px;border-right:1px solid #e5e7eb;display:flex;align-items:center;gap:6px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:${team.color};display:inline-block;flex-shrink:0"></span>
+        <span style="font-weight:700;color:#111827;font-size:11px">${esc(team.name)}</span>
+        ${team.key !== team.name ? `<span style="font-size:9px;font-family:monospace;color:${team.color};margin-left:4px">${esc(team.key)}</span>` : ''}
+      </div>
+      <div style="flex:1;position:relative;min-height:22px">${todayPct !== null ? todayLine(todayPct) : ''}</div>
+    </div>`;
+
+    for (const p of team.projects.nodes) {
+      const s = gParseUTC(p.startDate);
+      const e = gParseUTC(p.targetDate);
+      const hasBar   = s && e;
+      const color    = gStateColor(p.state);
+      const barLeft  = hasBar ? Math.max(0, pct(s!)) : 0;
+      const barRight = hasBar ? Math.min(100, pct(e!)) : 0;
+      const barWidth = hasBar ? Math.max(0.3, barRight - barLeft) : 0;
+      const barVisible = hasBar && barRight > 0 && barLeft < 100;
+
+      rows += `<div style="display:flex;border-bottom:1px solid #f3f4f6;min-height:22px;">
+        <div style="width:220px;min-width:220px;padding:3px 8px;border-right:1px solid #e5e7eb;display:flex;align-items:center;gap:5px;overflow:hidden;">
+          <span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block;flex-shrink:0" title="${esc(gStateLabel(p.state))}"></span>
+          <span style="color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px" title="${esc(p.name)}">${esc(p.name)}</span>
+        </div>
+        <div style="flex:1;position:relative;display:flex;align-items:center;">
+          ${todayPct !== null ? todayLine(todayPct) : ''}
+          ${barVisible ? `<div style="position:absolute;left:${barLeft.toFixed(2)}%;width:${barWidth.toFixed(2)}%;height:12px;background:${color};border-radius:2px;opacity:.8;" title="${esc(p.name)} · ${esc(gFmtDate(p.startDate))} → ${esc(gFmtDate(p.targetDate))}"><div style="position:absolute;inset:0;border-radius:2px;background:white;opacity:.35;width:${Math.round(p.progress*100)}%"></div></div>` : ''}
+          ${!hasBar ? `<span style="font-size:9px;color:#d1d5db;font-style:italic;padding-left:8px">No dates</span>` : ''}
+        </div>
+      </div>`;
+    }
+  }
+
+  const legendItems = Object.entries(GANTT_STATE_COLOR).filter(([k]) => k !== 'cancelled').map(([k,c]) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#6b7280"><span style="width:8px;height:8px;border-radius:2px;background:${c};display:inline-block"></span>${GANTT_STATE_LABEL[k]}</span>`
+  ).join('');
+
+  return `<div style="margin-top:40px;page-break-before:always">
+  <h2 style="font-size:16px;font-weight:700;color:#111827;margin:0 0 4px">Program Schedule</h2>
+  <p style="font-size:11px;color:#6b7280;margin:0 0 12px">All teams · Source: Linear</p>
+  <div style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;font-size:11px">
+    <div style="display:flex;border-bottom:2px solid #e5e7eb;background:#f9fafb">
+      <div style="width:220px;min-width:220px;padding:4px 8px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9ca3af;border-right:1px solid #e5e7eb">Project</div>
+      <div style="flex:1;position:relative;height:24px;overflow:hidden">${monthHeaders}${todayPct !== null ? todayLine(todayPct) : ''}</div>
+    </div>
+    ${rows}
+    <div style="display:flex;gap:16px;padding:6px 8px;border-top:1px solid #e5e7eb;background:#f9fafb;flex-wrap:wrap">
+      ${legendItems}
+      ${todayPct !== null ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#6b7280"><span style="width:1px;height:10px;background:#ef4444;display:inline-block"></span>Today</span>' : ''}
+    </div>
+  </div>
+</div>`;
+}
+
 // ── Print-friendly status text (no Tailwind color classes) ──────────────────
 
 function statusText(project: Project): string {
@@ -189,7 +423,7 @@ function SummaryBar({ teams }: { teams: Team[] }) {
 
 // ── Standalone HTML export ────────────────────────────────────────────────────
 
-function generateReportHTML(teams: Team[], generatedAt: string): string {
+function generateReportHTML(teams: Team[], ganttTeams: PrintGanttTeam[], generatedAt: string): string {
   const esc = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const stats = computeStats(teams);
 
@@ -273,6 +507,7 @@ body{font-family:system-ui,'Segoe UI',Arial,sans-serif;font-size:12px;color:#111
 </div>
 <div style="display:flex;gap:20px;padding:8px 0;margin-bottom:20px;border-bottom:1px solid #e5e7eb">${statsHtml}</div>
 ${teamSections}
+${ganttTeams.length > 0 ? buildGanttHTMLSection(ganttTeams) : ''}
 <div style="margin-top:32px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#9ca3af;display:flex;justify-content:space-between">
   <span>Colvin Run Networks — SBIR PM Dashboard</span>
   <span>Data sourced from Linear · ${esc(generatedAt)}</span>
@@ -293,6 +528,7 @@ function triggerDownload(content: string, mimeType: string, filename: string) {
 
 export default function PrintPage() {
   const [teams, setTeams] = useState<Team[] | null>(null);
+  const [ganttTeams, setGanttTeams] = useState<PrintGanttTeam[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string>('');
@@ -301,8 +537,15 @@ export default function PrintPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchPortfolioWithMilestones();
-      setTeams(data);
+      const [portfolioData, ganttRes] = await Promise.all([
+        fetchPortfolioWithMilestones(),
+        fetch('/api/gantt'),
+      ]);
+      setTeams(portfolioData);
+      if (ganttRes.ok) {
+        const ganttJson = await ganttRes.json();
+        setGanttTeams(ganttJson.teams ?? []);
+      }
       setGeneratedAt(formatTimestamp(new Date()));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
@@ -347,7 +590,7 @@ export default function PrintPage() {
           Refresh
         </button>
         <button
-          onClick={() => teams && triggerDownload(generateReportHTML(teams, generatedAt), 'text/html;charset=utf-8', `sbir-portfolio-report-${dateSlug}.html`)}
+          onClick={() => teams && triggerDownload(generateReportHTML(teams, ganttTeams, generatedAt), 'text/html;charset=utf-8', `sbir-portfolio-report-${dateSlug}.html`)}
           disabled={loading || !!error || !teams}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
@@ -424,6 +667,9 @@ export default function PrintPage() {
             {teams.map((team) => (
               <TeamSection key={team.id} team={team} />
             ))}
+
+            {/* Gantt section */}
+            {ganttTeams.length > 0 && <GanttSection teams={ganttTeams} />}
 
             {/* Footer */}
             <div style={{
