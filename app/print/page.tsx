@@ -187,6 +187,108 @@ function SummaryBar({ teams }: { teams: Team[] }) {
   );
 }
 
+// ── Standalone HTML export ────────────────────────────────────────────────────
+
+function generateReportHTML(teams: Team[], generatedAt: string): string {
+  const esc = (s: string) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const stats = computeStats(teams);
+
+  const teamSections = teams.map(team => {
+    const active = team.projects.nodes.filter(p => p.state !== 'completed' && p.state !== 'cancelled');
+    if (active.length === 0) return '';
+
+    const rows = active.map(project => {
+      const pct = Math.round(project.progress * 100);
+      const overdue = isOverdue(project);
+      const atRisk  = isAtRisk(project);
+      const statusColor = overdue ? '#dc2626' : atRisk ? '#d97706' : '#374151';
+      const progressColor = pct >= 80 ? '#22c55e' : pct >= 50 ? '#3b82f6' : pct >= 25 ? '#eab308' : '#ef4444';
+      const milestones = upcomingMilestones(project);
+      return `<tr style="border-bottom:1px solid #e5e7eb;">
+        <td style="width:4px;padding:0;background:${team.color}"></td>
+        <td style="padding:6px 8px;font-size:13px;color:#111827">${esc(project.name)}</td>
+        <td style="padding:6px 8px;font-size:12px;color:${statusColor};font-weight:${overdue||atRisk?600:400}">${esc(statusText(project))}</td>
+        <td style="padding:6px 8px;font-size:12px;color:#374151">${esc(healthText(project))}</td>
+        <td style="padding:6px 8px;font-size:12px;color:#374151">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:60px;height:6px;border-radius:3px;background:#e5e7eb;overflow:hidden;flex-shrink:0">
+              <div style="height:100%;width:${pct}%;border-radius:3px;background:${progressColor}"></div>
+            </div>
+            <span style="white-space:nowrap">${pct}%</span>
+          </div>
+        </td>
+        <td style="padding:6px 8px;font-size:12px;color:${overdue?'#dc2626':'#374151'};white-space:nowrap">${esc(formatDate(project.targetDate))}</td>
+        <td style="padding:6px 8px;font-size:12px;color:#374151">${esc(project.lead ? formatLeadName(project.lead.name) : '—')}</td>
+        <td style="padding:6px 8px;font-size:11px;color:#6b7280;max-width:260px">${esc(milestones)}</td>
+      </tr>`;
+    }).join('');
+
+    return `<div style="margin-bottom:24px;page-break-inside:avoid">
+      <div style="display:flex;align-items:center;gap:8px;border-bottom:2px solid ${team.color};padding-bottom:4px;margin-bottom:8px">
+        <span style="width:10px;height:10px;border-radius:50%;background:${team.color};flex-shrink:0;display:inline-block"></span>
+        <span style="font-size:14px;font-weight:700;color:#111827">${esc(team.name)}</span>
+        <span style="font-size:11px;font-weight:600;font-family:monospace;color:${team.color};background:${team.color}20;padding:1px 6px;border-radius:3px">${esc(team.key)}</span>
+        <span style="font-size:11px;color:#6b7280;margin-left:auto">${active.length} active project${active.length !== 1 ? 's' : ''}</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:#f3f4f6">
+          <th style="width:4px;padding:0"></th>
+          ${['Project','Status','PM Health','Progress','Target Date','Lead','Upcoming Milestones (90d)'].map(h=>`<th style="padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:left;white-space:nowrap">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  const statsHtml = [
+    { label: 'Active',    value: stats.active,    color: '#3b82f6' },
+    { label: 'On Track',  value: stats.onTrack,   color: '#22c55e' },
+    { label: 'At Risk',   value: stats.atRisk,    color: '#d97706' },
+    { label: 'Overdue',   value: stats.overdue,   color: '#dc2626' },
+    { label: 'Completed', value: stats.completed, color: '#6b7280' },
+  ].map(({ label, value, color }) => `<div style="text-align:center">
+    <div style="font-size:22px;font-weight:700;color:${color}">${value}</div>
+    <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em">${label}</div>
+  </div>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SBIR Portfolio Status Report</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;}
+body{font-family:system-ui,'Segoe UI',Arial,sans-serif;font-size:12px;color:#111827;background:#fff;padding:32px;max-width:1200px;margin:0 auto;}
+@media print{@page{margin:1.5cm;size:A4 landscape;}body{padding:0;}}
+</style>
+</head>
+<body>
+<div style="margin-bottom:20px;border-bottom:2px solid #1e40af;padding-bottom:12px;display:flex;align-items:flex-start;justify-content:space-between">
+  <div>
+    <div style="font-size:9px;font-weight:700;letter-spacing:.15em;color:#1e40af;text-transform:uppercase;margin-bottom:2px">COLVIN RUN NETWORKS</div>
+    <h1 style="font-size:22px;font-weight:700;color:#111827;margin:0">SBIR Portfolio Status Report</h1>
+    <p style="font-size:11px;color:#6b7280;margin:4px 0 0">Generated ${esc(generatedAt)}</p>
+  </div>
+  <div style="font-size:9px;color:#9ca3af;text-align:right;text-transform:uppercase;letter-spacing:.08em;border:1px solid #e5e7eb;padding:4px 8px;border-radius:4px">CUI — SBIR Data</div>
+</div>
+<div style="display:flex;gap:20px;padding:8px 0;margin-bottom:20px;border-bottom:1px solid #e5e7eb">${statsHtml}</div>
+${teamSections}
+<div style="margin-top:32px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#9ca3af;display:flex;justify-content:space-between">
+  <span>Colvin Run Networks — SBIR PM Dashboard</span>
+  <span>Data sourced from Linear · ${esc(generatedAt)}</span>
+</div>
+</body>
+</html>`;
+}
+
+function triggerDownload(content: string, mimeType: string, filename: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PrintPage() {
@@ -211,8 +313,11 @@ export default function PrintPage() {
 
   useEffect(() => { load(); }, []);
 
+  const dateSlug = new Date().toISOString().slice(0, 10);
+
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
+      <style>{`@media print { .no-print { display: none !important; } .print-no-break { page-break-inside: avoid; } }`}</style>
 
       {/* ── Screen-only toolbar ── */}
       <div className="no-print" style={{
@@ -242,6 +347,20 @@ export default function PrintPage() {
           Refresh
         </button>
         <button
+          onClick={() => teams && triggerDownload(generateReportHTML(teams, generatedAt), 'text/html;charset=utf-8', `sbir-portfolio-report-${dateSlug}.html`)}
+          disabled={loading || !!error || !teams}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500,
+            backgroundColor: '#334155', color: '#cbd5e1', border: '1px solid #475569',
+            cursor: loading || error || !teams ? 'not-allowed' : 'pointer',
+            opacity: loading || error || !teams ? 0.5 : 1,
+          }}
+        >
+          <Printer size={13} />
+          Download HTML
+        </button>
+        <button
           onClick={() => window.print()}
           disabled={loading || !!error}
           style={{
@@ -253,7 +372,7 @@ export default function PrintPage() {
           }}
         >
           <Printer size={13} />
-          Print / Export PDF
+          Print / PDF
         </button>
       </div>
 

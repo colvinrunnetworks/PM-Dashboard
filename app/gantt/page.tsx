@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { GanttChart, Download, RefreshCw, FileText } from 'lucide-react';
+import { GanttChart, Download, RefreshCw, FileText, CalendarRange, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -22,6 +22,15 @@ interface GanttTeam {
   key: string;
   color: string;
   projects: { nodes: GanttProject[] };
+}
+
+// ── Milestone type ────────────────────────────────────────────────────────────
+
+interface GanttMilestone {
+  id: string;
+  name: string;
+  targetDate: string | null;
+  status: 'unstarted' | 'next' | 'overdue' | 'done';
 }
 
 // ── Status colours ────────────────────────────────────────────────────────────
@@ -133,16 +142,38 @@ function makePositioner(minMs: number, totalMs: number) {
 
 const NAME_W = 260;
 
-function GanttView({ teams }: { teams: GanttTeam[] }) {
-  const { months, todayPct, pct } = useMemo(() => {
-    const allProjects = teams.flatMap(t => t.projects.nodes);
-    const starts = allProjects.map(p => parseUTC(p.startDate)).filter(Boolean) as Date[];
-    const ends   = allProjects.map(p => parseUTC(p.targetDate)).filter(Boolean) as Date[];
+const MILESTONE_COLORS: Record<string, string> = {
+  done:       '#22c55e',
+  overdue:    '#ef4444',
+  next:       '#3b82f6',
+  unstarted:  '#94a3b8',
+};
 
-    if (!starts.length && !ends.length) return { months: [], todayPct: null, pct: null };
+interface GanttViewProps {
+  teams: GanttTeam[];
+  milestoneMap: Map<string, GanttMilestone[]>;
+  rangeOverride: { start: string; end: string } | null;
+}
 
-    const minDate = startOfMonthUTC(new Date(Math.min(...starts.map(d => d.getTime()))));
-    const maxDate = addMonthsUTC(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
+function GanttView({ teams, milestoneMap, rangeOverride }: GanttViewProps) {
+  const { months, todayPct, pct, minDate, maxDate } = useMemo(() => {
+    let minDate: Date;
+    let maxDate: Date;
+
+    if (rangeOverride) {
+      const [sy, sm] = rangeOverride.start.split('-').map(Number);
+      const [ey, em] = rangeOverride.end.split('-').map(Number);
+      minDate = new Date(Date.UTC(sy, sm - 1, 1));
+      maxDate = addMonthsUTC(new Date(Date.UTC(ey, em - 1, 1)), 1);
+    } else {
+      const allProjects = teams.flatMap(t => t.projects.nodes);
+      const starts = allProjects.map(p => parseUTC(p.startDate)).filter(Boolean) as Date[];
+      const ends   = allProjects.map(p => parseUTC(p.targetDate)).filter(Boolean) as Date[];
+      if (!starts.length && !ends.length) return { months: [], todayPct: null, pct: null, minDate: null, maxDate: null };
+      minDate = startOfMonthUTC(new Date(Math.min(...starts.map(d => d.getTime()))));
+      maxDate = addMonthsUTC(new Date(Math.max(...ends.map(d => d.getTime()))), 1);
+    }
+
     const totalMs = maxDate.getTime() - minDate.getTime();
     const pct     = makePositioner(minDate.getTime(), totalMs);
 
@@ -156,10 +187,10 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
 
     const now = new Date();
     const todayPct = now >= minDate && now <= maxDate ? pct(now) : null;
-    return { months, todayPct, pct };
-  }, [teams]);
+    return { months, todayPct, pct, minDate, maxDate };
+  }, [teams, rangeOverride]);
 
-  if (!pct) {
+  if (!pct || !minDate || !maxDate) {
     return (
       <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 px-6 py-12 text-center text-sm text-slate-500">
         No projects with dates found for this selection.
@@ -219,8 +250,14 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
               const e = parseUTC(project.targetDate);
               const hasBar = s && e;
               const color  = stateColor(project.state);
-              const barLeft  = hasBar ? pct(s!) : 0;
-              const barWidth = hasBar ? Math.max(0.3, pct(e!) - pct(s!)) : 0;
+
+              // Clamp bar to visible range
+              const clampedLeft  = hasBar ? Math.max(0, pct(s!)) : 0;
+              const clampedRight = hasBar ? Math.min(100, pct(e!)) : 0;
+              const barWidth     = hasBar ? Math.max(0.3, clampedRight - clampedLeft) : 0;
+              const barVisible   = hasBar && clampedRight > 0 && clampedLeft < 100;
+
+              const milestones = milestoneMap.get(project.id) ?? [];
 
               return (
                 <div key={project.id} className="flex border-b border-slate-700/20 hover:bg-slate-800/40 transition-colors" style={{ minHeight: 30 }}>
@@ -228,19 +265,43 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
                     <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} title={stateLabel(project.state)} />
                     <span className="text-xs text-slate-300 truncate" title={project.name}>{project.name}</span>
                   </div>
-                  <div className="relative flex-1 flex items-center">
+                  <div className="relative flex-1 flex items-center" style={{ minHeight: 30 }}>
                     {todayPct !== null && <div className="absolute top-0 bottom-0 w-px bg-red-500/20" style={{ left: `${todayPct}%` }} />}
-                    {hasBar ? (
+                    {barVisible ? (
                       <div
                         className="absolute h-4 rounded"
-                        style={{ left: `${barLeft}%`, width: `${barWidth}%`, backgroundColor: color, opacity: 0.85 }}
+                        style={{ left: `${clampedLeft}%`, width: `${barWidth}%`, backgroundColor: color, opacity: 0.85 }}
                         title={`${project.name}\n${fmtDate(project.startDate)} → ${fmtDate(project.targetDate)}\n${stateLabel(project.state)}`}
                       >
                         <div className="absolute inset-y-0 left-0 rounded opacity-40 bg-white" style={{ width: `${Math.round(project.progress * 100)}%` }} />
                       </div>
-                    ) : (
+                    ) : !hasBar ? (
                       <span className="px-3 text-xs text-slate-600 italic">No dates — Backlog</span>
-                    )}
+                    ) : null}
+                    {/* Milestone diamonds */}
+                    {milestones.filter(m => m.targetDate).map(m => {
+                      const mDate = parseUTC(m.targetDate);
+                      if (!mDate) return null;
+                      const mPct = pct(mDate);
+                      if (mPct < 0 || mPct > 100) return null;
+                      const mColor = MILESTONE_COLORS[m.status] ?? '#94a3b8';
+                      return (
+                        <div
+                          key={m.id}
+                          className="absolute z-10 cursor-default"
+                          style={{
+                            left: `calc(${mPct}% - 5px)`,
+                            top: '50%',
+                            width: 10, height: 10,
+                            transform: 'translateY(-50%) rotate(45deg)',
+                            backgroundColor: mColor,
+                            border: '1.5px solid rgba(255,255,255,0.6)',
+                            borderRadius: 1,
+                          }}
+                          title={`◆ ${m.name}\n${fmtDate(m.targetDate)}\n${m.status}`}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -263,6 +324,10 @@ function GanttView({ teams }: { teams: GanttTeam[] }) {
             <span className="text-xs text-slate-500">Today</span>
           </div>
         )}
+        <div className="flex items-center gap-1.5">
+          <span className="inline-block w-2.5 h-2.5 rotate-45 rounded-sm border border-white/40" style={{ backgroundColor: '#94a3b8' }} />
+          <span className="text-xs text-slate-500">Milestone</span>
+        </div>
         <span className="ml-auto text-xs text-slate-700">White fill = progress</span>
       </div>
     </div>
@@ -400,28 +465,51 @@ function triggerDownload(content: string, mimeType: string, filename: string) {
 
 interface TeamMeta { id: string; name: string; key: string; color: string }
 
+function toMonthValue(iso: string): string {
+  return iso.slice(0, 7); // "YYYY-MM"
+}
+
 export default function GanttPage() {
   const [allTeamMeta, setAllTeamMeta] = useState<TeamMeta[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [rawTeams, setRawTeams]   = useState<GanttTeam[]>([]);
   const [loading,  setLoading]    = useState(true);
   const [error,    setError]      = useState<string | null>(null);
+  const [milestoneMap, setMilestoneMap] = useState<Map<string, GanttMilestone[]>>(new Map());
+  const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
 
   const load = useCallback(async (teamId: string | null) => {
     setLoading(true);
     setError(null);
     try {
-      const url = teamId ? `/api/gantt?teamId=${teamId}` : '/api/gantt';
-      const res = await fetch(url);
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error ?? `Request failed: ${res.status}`);
+      const ganttUrl = teamId ? `/api/gantt?teamId=${teamId}` : '/api/gantt';
+      const [ganttRes, msRes] = await Promise.all([
+        fetch(ganttUrl),
+        fetch('/api/milestones'),
+      ]);
+      if (!ganttRes.ok) {
+        const j = await ganttRes.json().catch(() => ({}));
+        throw new Error(j.error ?? `Request failed: ${ganttRes.status}`);
       }
-      const json = await res.json();
+      const json = await ganttRes.json();
       const loaded: GanttTeam[] = json.teams ?? [];
       setRawTeams(loaded);
       if (!teamId && loaded.length > 0) {
         setAllTeamMeta(loaded.map(t => ({ id: t.id, name: t.name, key: t.key, color: t.color })));
+      }
+
+      // Build milestone map from /api/milestones response
+      if (msRes.ok) {
+        const msJson = await msRes.json();
+        const nodes: Array<{ id: string; name: string; targetDate: string | null; status: string; project: { id: string } }> =
+          msJson?.data?.projectMilestones?.nodes ?? [];
+        const map = new Map<string, GanttMilestone[]>();
+        for (const n of nodes) {
+          const pid = n.project.id;
+          if (!map.has(pid)) map.set(pid, []);
+          map.get(pid)!.push({ id: n.id, name: n.name, targetDate: n.targetDate, status: n.status as GanttMilestone['status'] });
+        }
+        setMilestoneMap(map);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -439,6 +527,21 @@ export default function GanttPage() {
 
   // Apply SDEAT use-case grouping when the SDE team is selected
   const teams = useMemo(() => applyUseCaseGrouping(rawTeams), [rawTeams]);
+
+  // Auto-compute date range from all raw project dates
+  const autoRange = useMemo(() => {
+    const all = rawTeams.flatMap(t => t.projects.nodes);
+    const starts = all.map(p => p.startDate).filter(Boolean) as string[];
+    const ends   = all.map(p => p.targetDate).filter(Boolean) as string[];
+    if (!starts.length && !ends.length) return null;
+    const minMs = Math.min(...starts.map(s => new Date(s + 'T00:00:00Z').getTime()));
+    const maxMs = Math.max(...ends.map(e => new Date(e + 'T00:00:00Z').getTime()));
+    return { start: toMonthValue(new Date(minMs).toISOString()), end: toMonthValue(new Date(maxMs).toISOString()) };
+  }, [rawTeams]);
+
+  const rangeOverride = customRange;
+  const displayRange  = customRange ?? autoRange;
+  const rangeModified = customRange !== null;
 
   const selectionLabel = useMemo(() => {
     if (!selectedTeamId) return 'All Teams';
@@ -537,8 +640,42 @@ export default function GanttPage() {
         </div>
       )}
 
+      {/* Date range controls */}
+      {autoRange && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <CalendarRange className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+          <span className="text-xs text-slate-500 shrink-0">Date range:</span>
+          <input
+            type="month"
+            value={displayRange?.start ?? ''}
+            min={autoRange.start}
+            max={displayRange?.end ?? autoRange.end}
+            onChange={e => setCustomRange(r => ({ start: e.target.value, end: r?.end ?? autoRange!.end }))}
+            className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+          />
+          <span className="text-xs text-slate-600">→</span>
+          <input
+            type="month"
+            value={displayRange?.end ?? ''}
+            min={displayRange?.start ?? autoRange.start}
+            max={autoRange.end}
+            onChange={e => setCustomRange(r => ({ start: r?.start ?? autoRange!.start, end: e.target.value }))}
+            className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 focus:outline-none focus:border-blue-500"
+          />
+          {rangeModified && (
+            <button
+              onClick={() => setCustomRange(null)}
+              className="flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <X className="h-3 w-3" />
+              Reset
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Chart */}
-      {teams.length > 0 && <GanttView teams={teams} />}
+      {teams.length > 0 && <GanttView teams={teams} milestoneMap={milestoneMap} rangeOverride={rangeOverride} />}
     </div>
   );
 }
