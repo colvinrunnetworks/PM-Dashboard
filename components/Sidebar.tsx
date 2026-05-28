@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FolderKanban, Settings, Shield, AlertTriangle, CalendarClock, GanttChart, AlignLeft, Printer, Users, Target } from 'lucide-react';
+import { Settings, Shield, AlertTriangle, CalendarClock, GanttChart, AlignLeft, Printer, Users, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAttentionCount, useTimelineBeyondCount } from '@/lib/useAttentionCount';
 
@@ -16,15 +16,10 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   {
-    href: '/',
-    label: 'Portfolio',
-    icon: <LayoutDashboard className="h-4 w-4" />,
+    href: '/pi',
+    label: 'SAFe Dashboard',
+    icon: <Target className="h-4 w-4" />,
     exact: true,
-  },
-  {
-    href: '/programs',
-    label: 'Programs',
-    icon: <FolderKanban className="h-4 w-4" />,
   },
   {
     href: '/attention',
@@ -55,12 +50,6 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Gantt',
     icon: <GanttChart className="h-4 w-4" />,
     exact: false,
-  },
-  {
-    href: '/pi',
-    label: 'SAFe Dashboard',
-    icon: <Target className="h-4 w-4" />,
-    exact: true,
   },
   {
     href: '/print',
