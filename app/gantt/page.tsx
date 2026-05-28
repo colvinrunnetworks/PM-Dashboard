@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { GanttChart, Download, RefreshCw, FileText, CalendarRange, X } from 'lucide-react';
+import { GanttChart, Download, RefreshCw, Printer, CalendarRange, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -665,10 +665,55 @@ export default function GanttPage() {
   const totalProjects = rawTeams.reduce((n, t) => n + t.projects.nodes.length, 0);
   const withDates     = rawTeams.flatMap(t => t.projects.nodes).filter(p => p.startDate && p.targetDate).length;
 
+  const rangeLabel = rangeOverride
+    ? (() => {
+        const [sy, sm] = rangeOverride.start.split('-').map(Number);
+        const [ey, em] = rangeOverride.end.split('-').map(Number);
+        const s = new Date(Date.UTC(sy, sm - 1, 1));
+        const e = addMonthsUTC(new Date(Date.UTC(ey, em - 1, 1)), 1);
+        return `${fmtMonth(s)} – ${fmtMonth(addMonthsUTC(e, -1))}`;
+      })()
+    : 'All dates';
+
   return (
     <div className="flex flex-col gap-6 p-6">
+      {/* Print styles */}
+      <style>{`
+        @media print {
+          .gantt-no-print { display: none !important; }
+          .gantt-print-header { display: block !important; }
+          body, html { background: white !important; color: black !important; }
+          .gantt-chart-wrapper {
+            background: white !important;
+            color: #111 !important;
+            border: 1px solid #e5e7eb !important;
+            border-radius: 6px !important;
+          }
+          .gantt-chart-wrapper * {
+            border-color: #e5e7eb !important;
+          }
+          .gantt-chart-wrapper .bg-slate-900\\/60,
+          .gantt-chart-wrapper .bg-slate-800\\/30,
+          .gantt-chart-wrapper .bg-slate-900\\/30 {
+            background: #f9fafb !important;
+          }
+          .gantt-chart-wrapper .text-slate-300,
+          .gantt-chart-wrapper .text-slate-200 { color: #111827 !important; }
+          .gantt-chart-wrapper .text-slate-500,
+          .gantt-chart-wrapper .text-slate-600 { color: #6b7280 !important; }
+        }
+        .gantt-print-header { display: none; }
+      `}</style>
+
+      {/* Print-only header */}
+      <div className="gantt-print-header" style={{ marginBottom: 16, borderBottom: '2px solid #1e40af', paddingBottom: 10 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>COLVIN RUN NETWORKS</div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>Program Schedule — {selectionLabel}</div>
+        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{rangeLabel} · Generated {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+      </div>
+
       {/* Header */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+      <div className="gantt-no-print flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <GanttChart className="h-5 w-5 text-blue-400" />
@@ -688,27 +733,27 @@ export default function GanttPage() {
             Refresh
           </button>
           <button
-            onClick={() => triggerDownload(generateExportTXT(teams, selectionLabel, rangeOverride), 'text/plain;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.txt`)}
+            onClick={() => triggerDownload(generateExportHTML(teams, selectionLabel, rangeOverride), 'text/html;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.html`)}
             disabled={loading || teams.length === 0}
             className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700 disabled:opacity-50 transition-colors"
           >
-            <FileText className="h-3.5 w-3.5" />
-            Export TXT
+            <Download className="h-3.5 w-3.5" />
+            Download HTML
           </button>
           <button
-            onClick={() => triggerDownload(generateExportHTML(teams, selectionLabel, rangeOverride), 'text/html;charset=utf-8', `gantt-${nameSlug}-${dateSlug}.html`)}
+            onClick={() => window.print()}
             disabled={loading || teams.length === 0}
             className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
           >
-            <Download className="h-3.5 w-3.5" />
-            Export HTML
+            <Printer className="h-3.5 w-3.5" />
+            Print / PDF
           </button>
         </div>
       </div>
 
       {/* Team picker */}
       {allTeamMeta.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="gantt-no-print flex flex-wrap gap-2">
           <button
             onClick={() => selectTeam(null)}
             className={cn(
@@ -739,21 +784,21 @@ export default function GanttPage() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-400">
+        <div className="gantt-no-print rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-400">
           <strong>Error:</strong> {error}
         </div>
       )}
 
       {/* Loading */}
       {loading && teams.length === 0 && (
-        <div className="flex items-center justify-center py-24 text-sm text-slate-500">
+        <div className="gantt-no-print flex items-center justify-center py-24 text-sm text-slate-500">
           Loading Gantt data…
         </div>
       )}
 
       {/* Date range controls */}
       {autoRange && (
-        <div className="flex flex-col gap-2">
+        <div className="gantt-no-print flex flex-col gap-2">
           {/* Preset chips */}
           <div className="flex items-center gap-2 flex-wrap">
             <CalendarRange className="h-3.5 w-3.5 text-slate-500 shrink-0" />
@@ -814,7 +859,11 @@ export default function GanttPage() {
       )}
 
       {/* Chart */}
-      {teams.length > 0 && <GanttView teams={teams} milestoneMap={milestoneMap} rangeOverride={rangeOverride} />}
+      {teams.length > 0 && (
+        <div className="gantt-chart-wrapper">
+          <GanttView teams={teams} milestoneMap={milestoneMap} rangeOverride={rangeOverride} />
+        </div>
+      )}
     </div>
   );
 }
