@@ -23,7 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: '/attention',
-    label: 'Needs Attention',
+    label: 'Risk Register',
     icon: <AlertTriangle className="h-4 w-4" />,
     exact: true,
   },

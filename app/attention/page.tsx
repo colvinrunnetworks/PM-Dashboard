@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   AlertTriangle, Clock, User, CalendarRange,
-  CheckCircle2, TrendingDown, ExternalLink, PauseCircle,
-  CalendarX, UserX, Activity, Gauge,
+  CheckCircle2, ShieldAlert, ExternalLink, PauseCircle,
+  CalendarX, UserX, Activity, Gauge, Inbox,
 } from 'lucide-react';
 import { fetchPortfolio } from '@/lib/api';
 import {
@@ -19,7 +19,7 @@ import type { Team, Project } from '@/lib/types';
 
 // ── Flag types ────────────────────────────────────────────────────────────────
 
-type FlagKey = 'overdue' | 'at-risk' | 'due-soon' | 'on-hold' | 'stalled' | 'no-date' | 'no-lead' | 'no-health';
+type FlagKey = 'overdue' | 'at-risk' | 'due-soon' | 'on-hold' | 'stalled' | 'no-date' | 'no-lead' | 'no-health' | 'backlog';
 
 const FLAG_META: Record<FlagKey, {
   label: string;
@@ -36,9 +36,10 @@ const FLAG_META: Record<FlagKey, {
   'no-date':   { label: 'No Deadline',    icon: <CalendarX className="h-3.5 w-3.5" />,     chipActive: 'bg-slate-600/30 text-slate-300 border-slate-500/60',    chipInactive: 'text-slate-400 border-slate-700 hover:border-slate-500', badge: 'bg-slate-800/60 text-slate-400 border-slate-600/60' },
   'no-lead':   { label: 'No Lead',        icon: <UserX className="h-3.5 w-3.5" />,         chipActive: 'bg-slate-600/30 text-slate-300 border-slate-500/60',    chipInactive: 'text-slate-400 border-slate-700 hover:border-slate-500', badge: 'bg-slate-800/60 text-slate-400 border-slate-600/60' },
   'no-health': { label: 'Health Not Set', icon: <Gauge className="h-3.5 w-3.5" />,         chipActive: 'bg-slate-600/30 text-slate-300 border-slate-500/60',    chipInactive: 'text-slate-400 border-slate-700 hover:border-slate-500', badge: 'bg-slate-800/60 text-slate-400 border-slate-600/60' },
+  'backlog':   { label: 'Backlog Issues', icon: <Inbox className="h-3.5 w-3.5" />,         chipActive: 'bg-amber-600/25 text-amber-300 border-amber-500/60',     chipInactive: 'text-slate-400 border-slate-700 hover:border-slate-500', badge: 'bg-amber-950/60 text-amber-400 border-amber-700/60' },
 };
 
-const FLAG_ORDER: FlagKey[] = ['overdue', 'at-risk', 'due-soon', 'stalled', 'on-hold', 'no-date', 'no-lead', 'no-health'];
+const FLAG_ORDER: FlagKey[] = ['overdue', 'at-risk', 'due-soon', 'stalled', 'on-hold', 'no-date', 'no-lead', 'no-health', 'backlog'];
 
 // ── Data model ────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,15 @@ function collectFlagged(teams: Team[]): FlaggedProject[] {
       if (isActive && !project.targetDate) flags.push('no-date');
       if (isActive && !project.lead)       flags.push('no-lead');
       if (isActive && project.health === null) flags.push('no-health');
+
+      // Backlog health — issues that are unprioritized or stuck in triage/backlog
+      if (isActive) {
+        const issues = project.issues?.nodes ?? [];
+        const hasBacklogIssues = issues.some(
+          (i) => i.priority === 0 || i.state.type === 'triage' || i.state.type === 'backlog'
+        );
+        if (hasBacklogIssues) flags.push('backlog');
+      }
 
       if (flags.length > 0) {
         result.push({ project, team, flags, daysLeft: days });
@@ -280,16 +290,19 @@ function AttentionCard({ item }: { item: FlaggedProject }) {
         {(project.issues?.nodes ?? []).length > 0 && (
           <div className="border-t border-slate-700/40 pt-2">
             <div className="mb-1 text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Open Issues ({project.issues!.nodes.length})
+              Sampled Issues ({project.issues!.nodes.length})
             </div>
             <ul className="space-y-1">
-              {project.issues!.nodes.slice(0, 3).map((issue) => (
-                <li key={issue.id} className="flex items-center gap-2 text-xs text-slate-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-slate-600 shrink-0" />
-                  <span className="truncate">{issue.title}</span>
-                  <span className="shrink-0 text-slate-600">{issue.state.name}</span>
-                </li>
-              ))}
+              {project.issues!.nodes.slice(0, 3).map((issue) => {
+                const isBacklogIssue = issue.priority === 0 || issue.state.type === 'triage' || issue.state.type === 'backlog';
+                return (
+                  <li key={issue.id} className={cn('flex items-center gap-2 text-xs', isBacklogIssue ? 'text-amber-400/80' : 'text-slate-400')}>
+                    <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', isBacklogIssue ? 'bg-amber-500/60' : 'bg-slate-600')} />
+                    <span className="truncate">{issue.title}</span>
+                    <span className={cn('shrink-0', isBacklogIssue ? 'text-amber-600' : 'text-slate-600')}>{issue.state.name}</span>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -367,8 +380,8 @@ export default function AttentionPage() {
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <TrendingDown className="h-5 w-5 text-red-400" />
-            Needs Attention
+            <ShieldAlert className="h-5 w-5 text-red-400" />
+            Risk Register
           </h1>
           <p className="text-sm text-slate-500">
             {loading ? 'Loading…' : `${allItems.length} flagged project${allItems.length !== 1 ? 's' : ''} across all teams`}
