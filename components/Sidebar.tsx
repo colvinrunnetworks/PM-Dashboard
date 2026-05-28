@@ -29,7 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: '/deadlines',
-    label: 'Deadlines',
+    label: 'Kanban',
     icon: <CalendarClock className="h-4 w-4" />,
     exact: true,
   },

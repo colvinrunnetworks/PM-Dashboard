@@ -153,6 +153,7 @@ export default function DeadlinesPage() {
   const [windowDays, setWindowDays] = useState(30);
   const [showMilestones, setShowMilestones] = useState(true);
   const [showProjects, setShowProjects]     = useState(true);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
@@ -173,12 +174,22 @@ export default function DeadlinesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // All unique teams derived from the full data set
+  const allTeams = useMemo(() => {
+    const seen = new Map<string, { id: string; name: string; color: string }>();
+    for (const item of allItems) {
+      if (!seen.has(item.teamId)) seen.set(item.teamId, { id: item.teamId, name: item.teamName, color: item.teamColor });
+    }
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [allItems]);
+
   const filtered = useMemo(() => allItems.filter(item => {
     if (item.daysUntil > windowDays) return false;
     if (!showMilestones && item.kind === 'milestone') return false;
     if (!showProjects   && item.kind === 'project')   return false;
+    if (selectedTeamId && item.teamId !== selectedTeamId) return false;
     return true;
-  }), [allItems, windowDays, showMilestones, showProjects]);
+  }), [allItems, windowDays, showMilestones, showProjects, selectedTeamId]);
 
   // Columns: always show Overdue; hide Later if window <= 30
   const columns = useMemo(() =>
@@ -208,7 +219,7 @@ export default function DeadlinesPage() {
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <CalendarClock className="h-5 w-5 text-blue-400" />
-            Deadlines
+            Kanban
           </h1>
           <p className="text-sm text-slate-500">
             {loading ? 'Loading…' : `${filtered.length} items · ${rows.length} team${rows.length !== 1 ? 's' : ''}`}
@@ -265,6 +276,39 @@ export default function DeadlinesPage() {
           </button>
         </div>
       </div>
+
+      {/* Team filter chips */}
+      {allTeams.length > 1 && (
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <button
+            onClick={() => setSelectedTeamId(null)}
+            className={cn(
+              'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+              selectedTeamId === null
+                ? 'bg-blue-600/20 text-blue-300 border-blue-500/50'
+                : 'text-slate-400 border-slate-700 hover:border-slate-500'
+            )}
+          >
+            All Teams
+          </button>
+          {allTeams.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setSelectedTeamId(selectedTeamId === t.id ? null : t.id)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                selectedTeamId === t.id ? 'border-current' : 'border-slate-700 text-slate-400 hover:border-slate-500'
+              )}
+              style={selectedTeamId === t.id
+                ? { color: t.color, backgroundColor: `${t.color}18`, borderColor: `${t.color}60` }
+                : {}}
+            >
+              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+              {t.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {loading && rows.length === 0 && (
         <div className="flex items-center justify-center py-20 text-sm text-slate-500">Loading…</div>
