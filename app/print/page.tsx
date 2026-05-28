@@ -503,7 +503,6 @@ body{font-family:system-ui,'Segoe UI',Arial,sans-serif;font-size:12px;color:#111
     <h1 style="font-size:22px;font-weight:700;color:#111827;margin:0">SBIR Portfolio Status Report</h1>
     <p style="font-size:11px;color:#6b7280;margin:4px 0 0">Generated ${esc(generatedAt)}</p>
   </div>
-  <div style="font-size:9px;color:#9ca3af;text-align:right;text-transform:uppercase;letter-spacing:.08em;border:1px solid #e5e7eb;padding:4px 8px;border-radius:4px">CUI — SBIR Data</div>
 </div>
 <div style="display:flex;gap:20px;padding:8px 0;margin-bottom:20px;border-bottom:1px solid #e5e7eb">${statsHtml}</div>
 ${teamSections}
@@ -637,13 +636,6 @@ export default function PrintPage() {
                   Generated {generatedAt}
                 </p>
               )}
-            </div>
-            <div style={{
-              fontSize: 9, color: '#9ca3af', textAlign: 'right',
-              textTransform: 'uppercase', letterSpacing: '0.08em',
-              border: '1px solid #e5e7eb', padding: '4px 8px', borderRadius: 4,
-            }}>
-              CUI — SBIR Data
             </div>
           </div>
         </div>
