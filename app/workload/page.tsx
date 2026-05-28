@@ -1,608 +1,818 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
-import { ExternalLink, Users, PenLine, ChevronDown, ChevronUp, UserX } from 'lucide-react';
-import { RefreshButton } from '@/components/RefreshButton';
+import { useState, useMemo, useRef } from 'react';
+import { Upload, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface WorkloadUser {
-  id: string;
-  name: string;
+interface TimesheetRow {
   email: string;
-  avatarUrl?: string | null;
+  fname: string;
+  lname: string;
+  group: string;
+  date: string;
+  hours: number;
+  jobcode: string;
 }
 
-interface WorkloadIssue {
-  id: string;
-  identifier: string;
-  url: string;
-  title: string;
-  priority: number; // 0=None 1=Urgent 2=High 3=Normal 4=Low
-  createdAt: string;
-  state: { name: string; type: string };
-  assignee: WorkloadUser | null;
-  creator: WorkloadUser | null;
-  project: { id: string; name: string } | null;
-  team: { id: string; name: string; key: string; color: string } | null;
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
 }
 
-interface WorkloadResponse {
-  data: {
-    issues: {
-      nodes: WorkloadIssue[];
-    };
+function parseHours(val: string | undefined): number {
+  if (!val) return 0;
+  const trimmed = val.trim();
+  // Handle "H:MM" or "HH:MM" time format
+  if (/^\d+:\d{2}$/.test(trimmed)) {
+    const [h, m] = trimmed.split(':').map(Number);
+    return h + m / 60;
+  }
+  return parseFloat(trimmed) || 0;
+}
+
+function parseTimesheetCSV(text: string): TimesheetRow[] {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const headers = parseCSVLine(lines[0]);
+  const idx = (name: string) => headers.indexOf(name);
+  const iUsername = idx('username');
+  const iFname = idx('fname');
+  const iLname = idx('lname');
+  const iGroup = idx('group');
+  const iDate = idx('local_date');
+  const iHours = idx('hours');
+  // Support both jobcode_1 and jobcode columns
+  const iJobcode = idx('jobcode_1') >= 0 ? idx('jobcode_1') : idx('jobcode');
+
+  if ([iUsername, iFname, iLname, iGroup, iDate, iHours].some((i) => i < 0)) {
+    throw new Error(
+      'CSV missing required columns. Expected: username, fname, lname, group, local_date, hours, jobcode_1'
+    );
+  }
+
+  const rows: TimesheetRow[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = parseCSVLine(line);
+    const hours = parseHours(cols[iHours]);
+    if (!hours || isNaN(hours)) continue;
+    const date = cols[iDate]?.trim() ?? '';
+    if (!date) continue;
+    const jobcode = iJobcode >= 0 ? (cols[iJobcode]?.trim() ?? '') : '';
+    rows.push({
+      email: cols[iUsername]?.trim() ?? '',
+      fname: cols[iFname]?.trim() ?? '',
+      lname: cols[iLname]?.trim() ?? '',
+      group: cols[iGroup]?.trim() ?? '',
+      date,
+      hours,
+      jobcode: jobcode || 'Overhead',
+    });
+  }
+  return rows;
+}
+
+type Category = 'direct' | 'overhead' | 'bd' | 'fa' | 'ird' | 'bp' | 'pto' | 'sick';
+
+const CAT_LABEL: Record<Category, string> = {
+  direct: 'Direct',
+  overhead: 'Overhead',
+  bd: 'Biz Dev',
+  fa: 'F&A',
+  ird: 'IR&D',
+  bp: 'B&P',
+  pto: 'PTO',
+  sick: 'Sick',
+};
+
+const CAT_COLOR: Record<Category, string> = {
+  direct: '#3b82f6',
+  overhead: '#64748b',
+  bd: '#8b5cf6',
+  fa: '#6366f1',
+  ird: '#14b8a6',
+  bp: '#f59e0b',
+  pto: '#eab308',
+  sick: '#ef4444',
+};
+
+const CAT_ORDER: Category[] = ['direct', 'bd', 'ird', 'bp', 'fa', 'overhead', 'pto', 'sick'];
+
+function classifyJobcode(jobcode: string): Category {
+  if (/^\d/.test(jobcode)) return 'direct';
+  const lower = jobcode.toLowerCase();
+  if (lower.includes('overhead')) return 'overhead';
+  if (lower.includes('business development')) return 'bd';
+  if (lower.includes('finance') || lower.includes('admin')) return 'fa';
+  if (lower.includes('ir & d') || lower.includes('ir&d') || lower.includes('irad')) return 'ird';
+  if (lower.includes('bid') || lower.includes('proposal')) return 'bp';
+  if (lower.includes('pto')) return 'pto';
+  if (lower.includes('sick')) return 'sick';
+  return 'overhead';
+}
+
+function getMondayOf(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+function weekLabel(monday: string): string {
+  const d = new Date(monday + 'T00:00:00');
+  return `Wk of ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
+function periodLabel(rows: TimesheetRow[]): string {
+  const dates = rows.map((r) => r.date).sort();
+  const start = new Date(dates[0] + 'T00:00:00');
+  const end = new Date(dates[dates.length - 1] + 'T00:00:00');
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+const PLACEHOLDER_EMPLOYEES: { email: string; name: string; group: string }[] = [
+  { email: 'chris.hartline', name: 'Chris Hartline', group: 'Staff' },
+  { email: 'taylor.morse',   name: 'Taylor Morse',   group: 'Staff' },
+  { email: 'dan.wilson',     name: 'Dan Wilson',     group: 'Staff' },
+];
+
+function emptyByCategory(): Record<Category, number> {
+  return { direct: 0, overhead: 0, bd: 0, fa: 0, ird: 0, bp: 0, pto: 0, sick: 0 };
+}
+
+interface PersonStats {
+  email: string;
+  name: string;
+  group: string;
+  byCategory: Record<Category, number>;
+  byProject: { jobcode: string; hours: number }[];
+  byWeek: { monday: string; label: string; direct: number; total: number }[];
+  totalHours: number;
+  directHours: number;
+  leaveHours: number;
+  utilization: number;
+}
+
+function buildStats(
+  rows: TimesheetRow[],
+  weekFilter: string
+): {
+  people: PersonStats[];
+  weeks: { monday: string; label: string }[];
+  totalHours: number;
+  totalDirect: number;
+  avgUtil: number;
+} {
+  const filtered = weekFilter === 'all' ? rows : rows.filter((r) => getMondayOf(r.date) === weekFilter);
+
+  const weekSet = new Set<string>();
+  for (const r of rows) weekSet.add(getMondayOf(r.date));
+  const weeks = [...weekSet].sort().map((monday) => ({ monday, label: weekLabel(monday) }));
+
+  const peopleMap = new Map<
+    string,
+    { info: Pick<PersonStats, 'email' | 'name' | 'group'>; rows: TimesheetRow[] }
+  >();
+  for (const row of filtered) {
+    if (!peopleMap.has(row.email)) {
+      peopleMap.set(row.email, {
+        info: { email: row.email, name: `${row.fname} ${row.lname}`, group: row.group },
+        rows: [],
+      });
+    }
+    peopleMap.get(row.email)!.rows.push(row);
+  }
+
+  const people: PersonStats[] = [];
+  let totalHours = 0;
+  let totalDirect = 0;
+  let utilSum = 0;
+  let utilCount = 0;
+
+  for (const { info, rows: pRows } of peopleMap.values()) {
+    const byCategory = emptyByCategory();
+    const projectMap = new Map<string, number>();
+    const weekMap = new Map<string, { direct: number; total: number }>();
+
+    for (const row of pRows) {
+      const cat = classifyJobcode(row.jobcode);
+      byCategory[cat] += row.hours;
+      if (cat === 'direct') {
+        projectMap.set(row.jobcode, (projectMap.get(row.jobcode) ?? 0) + row.hours);
+      }
+      const monday = getMondayOf(row.date);
+      if (!weekMap.has(monday)) weekMap.set(monday, { direct: 0, total: 0 });
+      weekMap.get(monday)!.total += row.hours;
+      if (cat === 'direct') weekMap.get(monday)!.direct += row.hours;
+    }
+
+    const total = Object.values(byCategory).reduce((a, b) => a + b, 0);
+    const direct = byCategory.direct;
+    const leave = byCategory.pto + byCategory.sick;
+    const workable = total - leave;
+    const util = workable > 0 ? (direct / workable) * 100 : 0;
+
+    totalHours += total;
+    totalDirect += direct;
+    if (workable > 0) {
+      utilSum += util;
+      utilCount++;
+    }
+
+    people.push({
+      ...info,
+      byCategory,
+      byProject: [...projectMap.entries()]
+        .map(([jobcode, hours]) => ({ jobcode, hours }))
+        .sort((a, b) => b.hours - a.hours),
+      byWeek: weeks.map(({ monday, label }) => {
+        const w = weekMap.get(monday) ?? { direct: 0, total: 0 };
+        return { monday, label, ...w };
+      }),
+      totalHours: total,
+      directHours: direct,
+      leaveHours: leave,
+      utilization: util,
+    });
+  }
+
+  people.sort((a, b) => b.totalHours - a.totalHours);
+
+  return {
+    people,
+    weeks,
+    totalHours,
+    totalDirect,
+    avgUtil: utilCount > 0 ? utilSum / utilCount : 0,
   };
 }
 
-// ── API fetch ─────────────────────────────────────────────────────────────────
+// ── Trend data ────────────────────────────────────────────────────────────────
 
-async function fetchWorkload(): Promise<WorkloadIssue[]> {
-  const res = await fetch('/api/workload', { cache: 'no-store' });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error ?? `Request failed: ${res.status}`);
+interface TrendPoint {
+  monday: string;
+  label: string;
+  direct: number;
+  pto: number;
+  bd: number;
+  ird: number;
+  overhead: number;
+  sick: number;
+  fa: number;
+  bp: number;
+}
+
+function buildTrendData(rows: TimesheetRow[]): TrendPoint[] {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  const weekMap = new Map<string, TrendPoint>();
+  for (const row of rows.filter((r) => new Date(r.date + 'T00:00:00') <= today)) {
+    const monday = getMondayOf(row.date);
+    if (!weekMap.has(monday)) {
+      weekMap.set(monday, { monday, label: weekLabel(monday), direct: 0, pto: 0, bd: 0, ird: 0, overhead: 0, sick: 0, fa: 0, bp: 0 });
+    }
+    const w = weekMap.get(monday)!;
+    const cat = classifyJobcode(row.jobcode);
+    if (cat === 'direct') w.direct += row.hours;
+    else if (cat === 'pto') w.pto += row.hours;
+    else if (cat === 'sick') w.sick += row.hours;
+    else if (cat === 'bd') w.bd += row.hours;
+    else if (cat === 'ird') w.ird += row.hours;
+    else if (cat === 'fa') w.fa += row.hours;
+    else if (cat === 'bp') w.bp += row.hours;
+    else w.overhead += row.hours;
   }
-  const raw = (await res.json()) as WorkloadResponse;
-  return raw?.data?.issues?.nodes ?? [];
+  return [...weekMap.values()].sort((a, b) => a.monday.localeCompare(b.monday));
 }
 
-// ── Priority helpers ──────────────────────────────────────────────────────────
+type PeriodFilter = 'week' | 'month' | 'q1' | 'q2' | 'q3' | 'q4' | 'year';
 
-const PRIORITY_LABEL: Record<number, string> = {
-  0: 'No Priority', 1: 'Urgent', 2: 'High', 3: 'Normal', 4: 'Low',
-};
-
-const PRIORITY_COLOR: Record<number, string> = {
-  0: '#475569', 1: '#dc2626', 2: '#ea580c', 3: '#3b82f6', 4: '#64748b',
-};
-
-// Stack order for bars: urgent → high → normal → low → none
-const PRIORITY_STACK = [1, 2, 3, 4, 0] as const;
-
-function priorityBreakdown(issues: WorkloadIssue[]): Record<number, number> {
-  const out: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 };
-  for (const issue of issues) out[issue.priority] = (out[issue.priority] ?? 0) + 1;
-  return out;
+function getLatestYear(rows: TimesheetRow[]): number {
+  const dates = rows.map((r) => r.date).sort();
+  return new Date(dates[dates.length - 1] + 'T00:00:00').getFullYear();
 }
 
-// ── Derived data types ────────────────────────────────────────────────────────
-
-interface PersonRow {
-  userId: string;
-  name: string;
-  email: string;
-  issues: WorkloadIssue[];
-  breakdown: Record<number, number>;
-}
-
-// ── Bar chart row ─────────────────────────────────────────────────────────────
-
-const BAR_MAX_WIDTH = 340; // px — max bar width
-
-function BarRow({
-  row,
-  maxCount,
-  expanded,
-  onToggle,
-  teamFilter,
-}: {
-  row: PersonRow;
-  maxCount: number;
-  expanded: boolean;
-  onToggle: () => void;
-  teamFilter: string;
-}) {
-  const filtered = teamFilter
-    ? row.issues.filter((i) => i.team?.id === teamFilter)
-    : row.issues;
-
-  const displayCount = filtered.length;
-  const displayBreakdown = priorityBreakdown(filtered);
-  const barWidth = maxCount > 0 ? (displayCount / maxCount) * BAR_MAX_WIDTH : 0;
-
-  if (displayCount === 0) return null;
-
-  return (
-    <div className="border-b border-slate-700/40 last:border-0">
-      {/* Main row */}
-      <button
-        onClick={onToggle}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-800/40"
-      >
-        {/* Name */}
-        <div className="w-36 shrink-0">
-          <div className="truncate text-sm font-medium text-slate-200">{row.name}</div>
-          <div className="truncate text-xs text-slate-600">{row.email.split('@')[0]}</div>
-        </div>
-
-        {/* Stacked bar */}
-        <div className="flex-1">
-          <div
-            className="flex h-5 overflow-hidden rounded"
-            style={{ width: barWidth, minWidth: displayCount > 0 ? 8 : 0 }}
-          >
-            {PRIORITY_STACK.map((p) => {
-              const count = displayBreakdown[p] ?? 0;
-              if (count === 0) return null;
-              const segWidth = (count / displayCount) * 100;
-              return (
-                <div
-                  key={p}
-                  style={{ width: `${segWidth}%`, backgroundColor: PRIORITY_COLOR[p] }}
-                  title={`${PRIORITY_LABEL[p]}: ${count}`}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Count */}
-        <div className="w-10 shrink-0 text-right text-sm font-bold tabular-nums text-slate-300">
-          {displayCount}
-        </div>
-
-        {/* Expand toggle */}
-        <div className="w-5 shrink-0 text-slate-600">
-          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </div>
-      </button>
-
-      {/* Expanded issue list */}
-      {expanded && (
-        <div className="border-t border-slate-700/30 bg-slate-900/40 px-4 pb-3 pt-2">
-          <div className="flex flex-col gap-1">
-            {filtered.map((issue) => (
-              <div key={issue.id} className="flex items-center gap-2">
-                {/* Team color dot */}
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: issue.team?.color ?? '#475569' }}
-                />
-                {/* Identifier */}
-                <span className="w-20 shrink-0 font-mono text-xs text-slate-600">
-                  {issue.identifier}
-                </span>
-                {/* Priority pip */}
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: PRIORITY_COLOR[issue.priority] }}
-                  title={PRIORITY_LABEL[issue.priority]}
-                />
-                {/* Title + link */}
-                <a
-                  href={issue.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group flex min-w-0 flex-1 items-center gap-1 text-xs text-slate-300 hover:text-blue-300 transition-colors"
-                >
-                  <span className="truncate">{issue.title}</span>
-                  <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
-                </a>
-                {/* State */}
-                <span className="shrink-0 text-xs text-slate-600">{issue.state.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Legend ────────────────────────────────────────────────────────────────────
-
-function PriorityLegend() {
-  return (
-    <div className="flex items-center gap-4">
-      {PRIORITY_STACK.map((p) => (
-        <div key={p} className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: PRIORITY_COLOR[p] }} />
-          <span className="text-xs text-slate-500">{PRIORITY_LABEL[p]}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Chart section wrapper ─────────────────────────────────────────────────────
-
-function ChartSection({
-  title,
-  subtitle,
-  icon,
-  rows,
-  maxCount,
-  expandedIds,
-  onToggle,
-  teamFilter,
-}: {
-  title: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  rows: PersonRow[];
-  maxCount: number;
-  expandedIds: Set<string>;
-  onToggle: (id: string) => void;
-  teamFilter: string;
-}) {
-  const visibleRows = rows.filter((r) => {
-    const count = teamFilter
-      ? r.issues.filter((i) => i.team?.id === teamFilter).length
-      : r.issues.length;
-    return count > 0;
+function filterRowsByPeriod(rows: TimesheetRow[], filter: PeriodFilter): TimesheetRow[] {
+  const dates = rows.map((r) => r.date).sort();
+  const latest = new Date(dates[dates.length - 1] + 'T00:00:00');
+  const y = latest.getFullYear();
+  if (filter === 'year') {
+    return rows.filter((r) => new Date(r.date + 'T00:00:00').getFullYear() === y);
+  }
+  if (filter === 'week') {
+    const monday = getMondayOf(dates[dates.length - 1]);
+    return rows.filter((r) => getMondayOf(r.date) === monday);
+  }
+  if (filter === 'month') {
+    const m = latest.getMonth();
+    return rows.filter((r) => {
+      const d = new Date(r.date + 'T00:00:00');
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+  }
+  const qNum = { q1: 0, q2: 1, q3: 2, q4: 3 }[filter as 'q1' | 'q2' | 'q3' | 'q4'];
+  return rows.filter((r) => {
+    const d = new Date(r.date + 'T00:00:00');
+    return d.getFullYear() === y && Math.floor(d.getMonth() / 3) === qNum;
   });
-
-  return (
-    <div className="rounded-lg border border-slate-700/50 bg-slate-800/30">
-      {/* Header */}
-      <div className="flex items-start gap-3 border-b border-slate-700/40 px-4 py-3">
-        <div className="mt-0.5 text-slate-500">{icon}</div>
-        <div>
-          <h2 className="text-sm font-semibold text-slate-200">{title}</h2>
-          <p className="text-xs text-slate-500">{subtitle}</p>
-        </div>
-      </div>
-
-      {/* Column labels */}
-      <div className="flex items-center gap-3 border-b border-slate-700/30 px-4 py-2 text-xs font-medium uppercase tracking-wider text-slate-600">
-        <span className="w-36 shrink-0">Person</span>
-        <span className="flex-1">Issues (by priority)</span>
-        <span className="w-10 shrink-0 text-right">Count</span>
-        <span className="w-5 shrink-0" />
-      </div>
-
-      {visibleRows.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-slate-600">No data</div>
-      ) : (
-        visibleRows.map((row) => (
-          <BarRow
-            key={row.userId}
-            row={row}
-            maxCount={maxCount}
-            expanded={expandedIds.has(row.userId)}
-            onToggle={() => onToggle(row.userId)}
-            teamFilter={teamFilter}
-          />
-        ))
-      )}
-    </div>
-  );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+function getPeriodLabel(rows: TimesheetRow[], filter: PeriodFilter): string {
+  const dates = rows.map((r) => r.date).sort();
+  const latest = new Date(dates[dates.length - 1] + 'T00:00:00');
+  const y = latest.getUTCFullYear();
+  if (filter === 'week') return weekLabel(getMondayOf(dates[dates.length - 1]));
+  if (filter === 'month') return latest.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  if (filter === 'q1') return `Q1 ${y}`;
+  if (filter === 'q2') return `Q2 ${y}`;
+  if (filter === 'q3') return `Q3 ${y}`;
+  if (filter === 'q4') return `Q4 ${y}`;
+  return `${y}`;
+}
 
-export default function WorkloadPage() {
-  const [issues, setIssues] = useState<WorkloadIssue[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
-  const [teamFilter, setTeamFilter] = useState('');
-  const [expandedAssignees, setExpandedAssignees] = useState<Set<string>>(new Set());
-  const [expandedCreators, setExpandedCreators] = useState<Set<string>>(new Set());
-  const [unassignedExpanded, setUnassignedExpanded] = useState(false);
-  const unassignedRef = useRef<HTMLDivElement>(null);
+const TREND_LINES: { key: keyof Omit<TrendPoint, 'monday' | 'label'>; label: string; color: string }[] = [
+  { key: 'direct',   label: 'Direct (Billable)', color: CAT_COLOR.direct },
+  { key: 'pto',      label: 'PTO',               color: CAT_COLOR.pto },
+  { key: 'sick',     label: 'Sick',              color: CAT_COLOR.sick },
+  { key: 'bd',       label: 'Biz Dev',           color: CAT_COLOR.bd },
+  { key: 'ird',      label: 'IR&D',              color: CAT_COLOR.ird },
+  { key: 'fa',       label: 'F&A',               color: CAT_COLOR.fa },
+  { key: 'bp',       label: 'B&P',               color: CAT_COLOR.bp },
+  { key: 'overhead', label: 'Overhead',           color: CAT_COLOR.overhead },
+];
 
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchWorkload();
-      setIssues(data);
-      setLastRefreshed(new Date());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }
+function TrendChart({ data }: { data: TrendPoint[] }) {
+  if (data.length < 2) return null;
 
-  useEffect(() => { load(); }, []);
+  const W = 900, H = 300;
+  const PAD = { top: 16, right: 16, bottom: 36, left: 56 };
+  const plotW = W - PAD.left - PAD.right;
+  const plotH = H - PAD.top - PAD.bottom;
 
-  // All teams for filter dropdown
-  const teams = useMemo(() => {
-    if (!issues) return [];
-    const map = new Map<string, { id: string; name: string; key: string; color: string }>();
-    for (const issue of issues) {
-      if (issue.team && !map.has(issue.team.id)) map.set(issue.team.id, issue.team);
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [issues]);
+  const maxVal = Math.max(1, ...data.flatMap((d) => [d.direct, d.pto, d.bd, d.ird, d.overhead]));
+  const yMax = Math.ceil(maxVal / 20) * 20;
+  const yTicks = [0, 1, 2, 3, 4].map((i) => Math.round((yMax / 4) * i));
 
-  // Assignee rows — sorted by issue count desc
-  const assigneeRows = useMemo<PersonRow[]>(() => {
-    if (!issues) return [];
-    const map = new Map<string, PersonRow>();
+  const xOf = (i: number) => PAD.left + (i / (data.length - 1)) * plotW;
+  const yOf = (v: number) => PAD.top + plotH - (v / yMax) * plotH;
 
-    for (const issue of issues) {
-      if (!issue.assignee) continue;
-      const { id, name, email } = issue.assignee;
-      if (!map.has(id)) {
-        map.set(id, { userId: id, name, email, issues: [], breakdown: {} });
-      }
-      map.get(id)!.issues.push(issue);
-    }
+  const linePath = (key: keyof Omit<TrendPoint, 'monday' | 'label'>) =>
+    data.map((d, i) => `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(1)},${yOf(d[key]).toFixed(1)}`).join(' ');
 
-    return [...map.values()]
-      .map((r) => ({ ...r, breakdown: priorityBreakdown(r.issues) }))
-      .sort((a, b) => b.issues.length - a.issues.length);
-  }, [issues]);
-
-  // Creator rows — sorted by issue count desc
-  const creatorRows = useMemo<PersonRow[]>(() => {
-    if (!issues) return [];
-    const map = new Map<string, PersonRow>();
-
-    for (const issue of issues) {
-      if (!issue.creator) continue;
-      const { id, name, email } = issue.creator;
-      if (!map.has(id)) {
-        map.set(id, { userId: id, name, email, issues: [], breakdown: {} });
-      }
-      map.get(id)!.issues.push(issue);
-    }
-
-    return [...map.values()]
-      .map((r) => ({ ...r, breakdown: priorityBreakdown(r.issues) }))
-      .sort((a, b) => b.issues.length - a.issues.length);
-  }, [issues]);
-
-  // Max counts for bar scaling (filtered)
-  const assigneeMax = useMemo(() => {
-    if (!assigneeRows.length) return 1;
-    return Math.max(...assigneeRows.map((r) =>
-      teamFilter ? r.issues.filter((i) => i.team?.id === teamFilter).length : r.issues.length
-    ), 1);
-  }, [assigneeRows, teamFilter]);
-
-  const creatorMax = useMemo(() => {
-    if (!creatorRows.length) return 1;
-    return Math.max(...creatorRows.map((r) =>
-      teamFilter ? r.issues.filter((i) => i.team?.id === teamFilter).length : r.issues.length
-    ), 1);
-  }, [creatorRows, teamFilter]);
-
-  function toggleAssignee(id: string) {
-    setExpandedAssignees((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  function toggleCreator(id: string) {
-    setExpandedCreators((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  // Summary stats
-  const totalIssues  = issues?.length ?? 0;
-  const unassigned   = issues?.filter((i) => !i.assignee).length ?? 0;
-  const urgentCount  = issues?.filter((i) => i.priority === 1).length ?? 0;
+  const step = Math.max(1, Math.ceil(data.length / 8));
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-
-      {/* Page header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-bold text-white">Workload</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Open issue distribution across the team
-          </p>
-        </div>
-        <RefreshButton onRefresh={load} loading={loading} lastRefreshed={lastRefreshed} />
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-400">
-          {error}
-        </div>
-      )}
-
-      {/* Summary chips */}
-      {issues && (
-        <div className="flex flex-wrap gap-3">
-          <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-center">
-            <div className="text-xl font-bold tabular-nums text-slate-200">{totalIssues}</div>
-            <div className="text-xs text-slate-600">Open issues</div>
-          </div>
-          {/* Unassigned chip — clickable to jump & expand */}
-          <button
-            onClick={() => {
-              if (unassigned === 0) return;
-              setUnassignedExpanded(true);
-              setTimeout(() => unassignedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-            }}
-            disabled={unassigned === 0}
-            className={cn(
-              'rounded-lg border px-4 py-2.5 text-center transition-colors',
-              unassigned > 0
-                ? 'border-yellow-800/60 bg-yellow-950/20 hover:bg-yellow-950/40 cursor-pointer'
-                : 'border-slate-700/50 bg-slate-800/40 cursor-default'
-            )}
-          >
-            <div className={cn('text-xl font-bold tabular-nums', unassigned > 0 ? 'text-yellow-400' : 'text-slate-200')}>
-              {unassigned}
+    <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 p-4">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <h2 className="text-sm font-semibold text-slate-200">Hours Trend</h2>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {TREND_LINES.map(({ key, label, color }) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <svg width="16" height="4" className="shrink-0">
+                <line x1="0" y1="2" x2="16" y2="2" stroke={color} strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <span className="text-xs text-slate-500">{label}</span>
             </div>
-            <div className="text-xs text-slate-600">Unassigned ↓</div>
-          </button>
-          <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-center">
-            <div className={cn('text-xl font-bold tabular-nums', urgentCount > 0 ? 'text-red-400' : 'text-slate-200')}>{urgentCount}</div>
-            <div className="text-xs text-slate-600">Urgent</div>
-          </div>
-          <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-center">
-            <div className="text-xl font-bold tabular-nums text-slate-200">{assigneeRows.length}</div>
-            <div className="text-xs text-slate-600">Contributors</div>
-          </div>
-        </div>
-      )}
-
-      {/* Filter row */}
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-slate-500 shrink-0">Filter by team:</span>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setTeamFilter('')}
-            className={cn(
-              'rounded px-2.5 py-1 text-xs font-medium transition-colors',
-              teamFilter === ''
-                ? 'bg-blue-600/30 text-blue-300 border border-blue-600/50'
-                : 'text-slate-400 border border-slate-700 hover:bg-slate-800'
-            )}
-          >
-            All teams
-          </button>
-          {teams.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTeamFilter(t.id === teamFilter ? '' : t.id)}
-              className={cn(
-                'flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors border',
-                teamFilter === t.id
-                  ? 'text-white'
-                  : 'text-slate-400 border-slate-700 hover:bg-slate-800'
-              )}
-              style={
-                teamFilter === t.id
-                  ? { backgroundColor: `${t.color}30`, borderColor: `${t.color}60`, color: t.color }
-                  : {}
-              }
-            >
-              <span
-                className="h-2 w-2 rounded-full shrink-0"
-                style={{ backgroundColor: t.color }}
-              />
-              {t.key}
-            </button>
           ))}
         </div>
       </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 280 }}>
+        {/* Grid + Y labels */}
+        {yTicks.map((tick) => (
+          <g key={tick}>
+            <line x1={PAD.left} y1={yOf(tick)} x2={W - PAD.right} y2={yOf(tick)} stroke="#1e293b" strokeWidth="1" />
+            <text x={PAD.left - 6} y={yOf(tick)} textAnchor="end" dominantBaseline="middle" fontSize="13" fontWeight="600" fill="#94a3b8">
+              {tick}h
+            </text>
+          </g>
+        ))}
+        {/* X labels */}
+        {data.map((d, i) => {
+          if (i % step !== 0 && i !== data.length - 1) return null;
+          return (
+            <text key={d.monday} x={xOf(i)} y={H - 6} textAnchor="middle" fontSize="12" fontWeight="600" fill="#94a3b8">
+              {d.label.replace('Wk of ', '')}
+            </text>
+          );
+        })}
+        {/* Lines */}
+        {TREND_LINES.map(({ key, color }) => (
+          <path key={key} d={linePath(key)} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+        ))}
+        {/* Dots (only when few data points) */}
+        {data.length <= 16 && TREND_LINES.map(({ key, color }) =>
+          data.map((d, i) => (
+            <circle key={`${key}-${i}`} cx={xOf(i)} cy={yOf(d[key])} r="4" fill={color} />
+          ))
+        )}
+      </svg>
+    </div>
+  );
+}
 
-      {/* Priority legend */}
-      {issues && <PriorityLegend />}
+function utilColor(util: number): string {
+  if (util >= 70) return '#22c55e';
+  if (util >= 50) return '#eab308';
+  if (util >= 30) return '#f97316';
+  return '#ef4444';
+}
 
-      {loading && (
-        <div className="py-16 text-center text-sm text-slate-600">Loading workload data…</div>
-      )}
+function PersonCard({ person }: { person: PersonStats }) {
+  const [expanded, setExpanded] = useState(false);
+  const total = person.totalHours;
+  const onLeaveOnly = total > 0 && total === person.leaveHours;
 
-      {/* Charts */}
-      {issues && !loading && (
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-
-          {/* Assignee chart */}
-          <ChartSection
-            title="Task Load by Assignee"
-            subtitle="Who has the most open issues assigned to them"
-            icon={<Users className="h-4 w-4" />}
-            rows={assigneeRows}
-            maxCount={assigneeMax}
-            expandedIds={expandedAssignees}
-            onToggle={toggleAssignee}
-            teamFilter={teamFilter}
-          />
-
-          {/* Creator chart */}
-          <ChartSection
-            title="Issues Created by Person"
-            subtitle="Who is actively logging tasks in Linear"
-            icon={<PenLine className="h-4 w-4" />}
-            rows={creatorRows}
-            maxCount={creatorMax}
-            expandedIds={expandedCreators}
-            onToggle={toggleCreator}
-            teamFilter={teamFilter}
-          />
-
-        </div>
-      )}
-
-      {/* Unassigned drilldown */}
-      {issues && unassigned > 0 && (
-        <div ref={unassignedRef} className="rounded-lg border border-yellow-800/50 bg-yellow-950/20">
-          {/* Header — always visible, toggles expansion */}
-          <button
-            onClick={() => setUnassignedExpanded((v) => !v)}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-yellow-950/30"
+  return (
+    <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 flex flex-col overflow-hidden">
+      <div className="px-4 pt-4 pb-3 border-b border-slate-700/30">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="font-semibold text-slate-200 text-sm">{person.name}</div>
+            <div className="text-xs text-slate-500 mt-0.5">{person.email.split('@')[0]}</div>
+          </div>
+          <span
+            className={cn(
+              'text-xs px-2 py-0.5 rounded-full font-medium shrink-0',
+              person.group === 'Executives'
+                ? 'bg-purple-900/50 text-purple-300'
+                : 'bg-blue-900/40 text-blue-300'
+            )}
           >
-            <UserX className="h-4 w-4 shrink-0 text-yellow-500" />
-            <div className="flex-1">
-              <span className="text-sm font-semibold text-yellow-400">
-                {unassigned} unassigned issue{unassigned !== 1 ? 's' : ''}
-              </span>
-              <span className="ml-2 text-xs text-slate-500">
-                not reflected in the assignee chart above
-              </span>
-            </div>
-            <div className="text-yellow-700">
-              {unassignedExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </div>
-          </button>
+            {person.group === 'Executives' ? 'Leadership' : person.group}
+          </span>
+        </div>
 
-          {/* Expanded issue list */}
-          {unassignedExpanded && (() => {
-            const unassignedIssues = (teamFilter
-              ? issues.filter((i) => !i.assignee && i.team?.id === teamFilter)
-              : issues.filter((i) => !i.assignee)
-            ).sort((a, b) => a.priority - b.priority || a.identifier.localeCompare(b.identifier));
+        <div className="flex items-end gap-4 mt-3">
+          <div>
+            <div
+              className="text-2xl font-bold tabular-nums"
+              style={{ color: onLeaveOnly ? '#64748b' : utilColor(person.utilization) }}
+            >
+              {onLeaveOnly ? '—' : `${Math.round(person.utilization)}%`}
+            </div>
+            <div className="text-xs text-slate-500">utilization</div>
+          </div>
+          <div className="w-px h-8 bg-slate-700/60" />
+          <div>
+            <div className="text-lg font-bold tabular-nums text-slate-200">
+              {person.directHours.toFixed(1)}h
+            </div>
+            <div className="text-xs text-slate-500">direct</div>
+          </div>
+          <div>
+            <div className="text-lg font-bold tabular-nums text-slate-400">
+              {person.totalHours.toFixed(1)}h
+            </div>
+            <div className="text-xs text-slate-500">total</div>
+          </div>
+          {person.leaveHours > 0 && (
+            <div>
+              <div className="text-lg font-bold tabular-nums text-yellow-500">
+                {person.leaveHours.toFixed(1)}h
+              </div>
+              <div className="text-xs text-slate-500">PTO</div>
+            </div>
+          )}
+        </div>
+      </div>
 
+      <div className="px-4 py-3 border-b border-slate-700/30">
+        <div className="flex h-3 rounded overflow-hidden gap-px">
+          {CAT_ORDER.map((cat) => {
+            const hours = person.byCategory[cat];
+            if (!hours || !total) return null;
+            const pct = (hours / total) * 100;
             return (
-              <div className="border-t border-yellow-800/40 px-4 pb-3 pt-2">
-                {unassignedIssues.length === 0 ? (
-                  <p className="py-2 text-xs text-slate-500">No unassigned issues for the selected team.</p>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    {unassignedIssues.map((issue) => (
-                      <div key={issue.id} className="flex items-center gap-2">
-                        {/* Team color dot */}
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: issue.team?.color ?? '#475569' }}
-                        />
-                        {/* Team key */}
-                        <span className="w-12 shrink-0 font-mono text-xs text-slate-600">
-                          {issue.team?.key ?? '—'}
-                        </span>
-                        {/* Identifier */}
-                        <span className="w-20 shrink-0 font-mono text-xs text-slate-500">
-                          {issue.identifier}
-                        </span>
-                        {/* Priority pip */}
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: PRIORITY_COLOR[issue.priority] }}
-                          title={PRIORITY_LABEL[issue.priority]}
-                        />
-                        {/* Title + link */}
-                        <a
-                          href={issue.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="group flex min-w-0 flex-1 items-center gap-1 text-xs text-slate-300 hover:text-blue-300 transition-colors"
-                        >
-                          <span className="truncate">{issue.title}</span>
-                          <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
-                        </a>
-                        {/* Project */}
-                        <span className="shrink-0 text-xs text-slate-600 truncate max-w-32">
-                          {issue.project?.name ?? '—'}
-                        </span>
-                        {/* State */}
-                        <span className="shrink-0 text-xs text-slate-600">{issue.state.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div
+                key={cat}
+                style={{ width: `${pct}%`, backgroundColor: CAT_COLOR[cat] }}
+                title={`${CAT_LABEL[cat]}: ${hours.toFixed(1)}h`}
+              />
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+          {CAT_ORDER.map((cat) => {
+            const hours = person.byCategory[cat];
+            if (!hours) return null;
+            return (
+              <div key={cat} className="flex items-center gap-1">
+                <span
+                  className="h-2 w-2 rounded-sm shrink-0"
+                  style={{ backgroundColor: CAT_COLOR[cat] }}
+                />
+                <span className="text-xs text-slate-400">
+                  {CAT_LABEL[cat]} {hours.toFixed(1)}h
+                </span>
               </div>
             );
-          })()}
+          })}
+        </div>
+      </div>
+
+      {person.byProject.length > 0 && (
+        <div>
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-2 text-left hover:bg-slate-800/40 transition-colors"
+          >
+            <span className="text-xs font-medium text-slate-400">
+              {person.byProject.length} project{person.byProject.length !== 1 ? 's' : ''} ·{' '}
+              {person.directHours.toFixed(1)}h direct
+            </span>
+            {expanded ? (
+              <ChevronUp className="h-3.5 w-3.5 text-slate-600" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 text-slate-600" />
+            )}
+          </button>
+          {expanded && (
+            <div className="px-4 pb-3 flex flex-col gap-2">
+              {person.byProject.map((p) => {
+                const pct =
+                  person.directHours > 0 ? (p.hours / person.directHours) * 100 : 0;
+                return (
+                  <div key={p.jobcode}>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs text-slate-300 truncate max-w-[200px]">
+                        {p.jobcode}
+                      </span>
+                      <span className="text-xs tabular-nums text-slate-400 shrink-0 ml-2">
+                        {p.hours.toFixed(1)}h ({Math.round(pct)}%)
+                      </span>
+                    </div>
+                    <div className="h-1.5 bg-slate-700/50 rounded overflow-hidden">
+                      <div
+                        className="h-full rounded"
+                        style={{ width: `${pct}%`, backgroundColor: CAT_COLOR.direct }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
+    </div>
+  );
+}
 
+function UploadZone({ onData }: { onData: (rows: TimesheetRow[]) => void }) {
+  const [isDragging, setIsDragging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function processFile(file: File) {
+    setError(null);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const rows = parseTimesheetCSV(text);
+        if (rows.length === 0) throw new Error('No valid rows found in file');
+        onData(rows);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to parse file');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-8">
+      <div
+        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          const file = e.dataTransfer.files[0];
+          if (file) processFile(file);
+        }}
+        onClick={() => inputRef.current?.click()}
+        className={cn(
+          'w-full max-w-md rounded-xl border-2 border-dashed px-8 py-12 text-center cursor-pointer transition-colors',
+          isDragging
+            ? 'border-blue-500 bg-blue-950/20'
+            : 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/30'
+        )}
+      >
+        <Upload className="h-10 w-10 text-slate-600 mx-auto mb-4" />
+        <div className="text-sm font-medium text-slate-300 mb-1">
+          Drop your QuickBooks Time CSV here
+        </div>
+        <div className="text-xs text-slate-500">or click to browse</div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) processFile(file);
+          }}
+        />
+      </div>
+      {error && (
+        <div className="text-sm text-red-400 bg-red-950/30 border border-red-800 rounded-lg px-4 py-2 max-w-md text-center">
+          {error}
+        </div>
+      )}
+      <div className="text-xs text-slate-600 text-center max-w-sm">
+        Export from QuickBooks Time → Reports → Time Activities. Supports the standard CSV
+        format with columns: username, fname, lname, group, local_date, hours, jobcode_1.
+      </div>
+    </div>
+  );
+}
+
+export default function BillableHoursPage() {
+  const [rows, setRows] = useState<TimesheetRow[] | null>(null);
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('year');
+
+  const quartersWithData = useMemo(() => {
+    if (!rows) return new Set<PeriodFilter>();
+    const y = getLatestYear(rows);
+    const set = new Set<PeriodFilter>();
+    for (const r of rows) {
+      const d = new Date(r.date + 'T00:00:00');
+      if (d.getFullYear() === y) {
+        const q = Math.floor(d.getMonth() / 3);
+        set.add((['q1', 'q2', 'q3', 'q4'] as PeriodFilter[])[q]);
+      }
+    }
+    return set;
+  }, [rows]);
+
+  const filteredRows = useMemo(
+    () => (rows ? filterRowsByPeriod(rows, periodFilter) : []),
+    [rows, periodFilter]
+  );
+
+  const trendData = useMemo(() => (filteredRows.length ? buildTrendData(filteredRows) : []), [filteredRows]);
+
+  const { people: csvPeople, weeks, totalHours, totalDirect, avgUtil } = useMemo(
+    () =>
+      filteredRows.length
+        ? buildStats(filteredRows, 'all')
+        : { people: [], weeks: [], totalHours: 0, totalDirect: 0, avgUtil: 0 },
+    [filteredRows]
+  );
+
+  const people = useMemo(() => {
+    const existing = new Set(csvPeople.map((p) => p.email));
+    const placeholders: PersonStats[] = PLACEHOLDER_EMPLOYEES
+      .filter((p) => !existing.has(p.email))
+      .map((p) => ({
+        email: p.email,
+        name: p.name,
+        group: p.group,
+        byCategory: emptyByCategory(),
+        byProject: [],
+        byWeek: [],
+        totalHours: 0,
+        directHours: 0,
+        leaveHours: 0,
+        utilization: 0,
+      }));
+    return [...csvPeople, ...placeholders];
+  }, [csvPeople]);
+
+  const period = useMemo(() => (rows ? periodLabel(rows) : ''), [rows]);
+
+  if (!rows) {
+    return (
+      <div className="p-6">
+        <div className="mb-6">
+          <h1 className="text-lg font-bold text-white">Billable Hours</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            Upload a QuickBooks Time CSV to view team utilization
+          </p>
+        </div>
+        <UploadZone onData={setRows} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6 p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-bold text-white">Billable Hours</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {period} · {people.length} people
+          </p>
+        </div>
+        <button
+          onClick={() => { setRows(null); setPeriodFilter('year'); }}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors border border-slate-700 rounded px-2.5 py-1.5"
+        >
+          <X className="h-3.5 w-3.5" />
+          Load new file
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-center">
+          <div className="text-xl font-bold tabular-nums text-slate-200">{totalHours.toFixed(0)}h</div>
+          <div className="text-xs text-slate-600">Total hours</div>
+        </div>
+        <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-center">
+          <div className="text-xl font-bold tabular-nums text-blue-400">{totalDirect.toFixed(0)}h</div>
+          <div className="text-xs text-slate-600">Direct billable</div>
+        </div>
+        <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-center">
+          <div className="text-xl font-bold tabular-nums" style={{ color: utilColor(avgUtil) }}>
+            {Math.round(avgUtil)}%
+          </div>
+          <div className="text-xs text-slate-600">Avg utilization</div>
+        </div>
+        <div className="rounded-lg border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-center">
+          <div className="text-xl font-bold tabular-nums text-slate-200">{people.length}</div>
+          <div className="text-xs text-slate-600">People</div>
+        </div>
+      </div>
+
+      {/* Trend chart */}
+      <TrendChart data={trendData} />
+
+      {/* Period filter */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-slate-500 shrink-0">Filter:</span>
+        <div className="flex flex-wrap gap-2">
+          {(['week', 'month'] as PeriodFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setPeriodFilter(f)}
+              className={cn(
+                'rounded px-2.5 py-1 text-xs font-medium border transition-colors',
+                periodFilter === f
+                  ? 'bg-blue-600/30 text-blue-300 border-blue-600/50'
+                  : 'text-slate-400 border-slate-700 hover:bg-slate-800'
+              )}
+            >
+              {getPeriodLabel(rows!, f)}
+            </button>
+          ))}
+          {(['q1', 'q2', 'q3', 'q4'] as PeriodFilter[]).map((f) => {
+            const hasData = quartersWithData.has(f);
+            return (
+              <button
+                key={f}
+                onClick={() => hasData && setPeriodFilter(f)}
+                disabled={!hasData}
+                className={cn(
+                  'rounded px-2.5 py-1 text-xs font-medium border transition-colors',
+                  !hasData
+                    ? 'text-slate-600 border-slate-800 cursor-not-allowed opacity-50'
+                    : periodFilter === f
+                    ? 'bg-blue-600/30 text-blue-300 border-blue-600/50'
+                    : 'text-slate-400 border-slate-700 hover:bg-slate-800'
+                )}
+              >
+                {getPeriodLabel(rows!, f)}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setPeriodFilter('year')}
+            className={cn(
+              'rounded px-2.5 py-1 text-xs font-medium border transition-colors',
+              periodFilter === 'year'
+                ? 'bg-blue-600/30 text-blue-300 border-blue-600/50'
+                : 'text-slate-400 border-slate-700 hover:bg-slate-800'
+            )}
+          >
+            {getPeriodLabel(rows!, 'year')}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {people.map((p) => (
+          <PersonCard key={p.email} person={p} />
+        ))}
+      </div>
     </div>
   );
 }

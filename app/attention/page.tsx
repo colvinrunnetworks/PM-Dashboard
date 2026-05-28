@@ -223,22 +223,22 @@ function AttentionCard({ item, variant }: { item: FlaggedProject; variant: 'over
         </div>
 
         {/* Issues (if any) */}
-        {project.issues.nodes.length > 0 && (
+        {(project.issues?.nodes ?? []).length > 0 && (
           <div className="border-t border-slate-700/40 pt-2">
             <div className="mb-1 text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Open Issues ({project.issues.nodes.length})
+              Open Issues ({project.issues!.nodes.length})
             </div>
             <ul className="space-y-1">
-              {project.issues.nodes.slice(0, 3).map((issue) => (
+              {project.issues!.nodes.slice(0, 3).map((issue) => (
                 <li key={issue.id} className="flex items-center gap-2 text-xs text-slate-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-slate-600 shrink-0" />
                   <span className="truncate">{issue.title}</span>
                   <span className="shrink-0 text-slate-600">{issue.state.name}</span>
                 </li>
               ))}
-              {project.issues.nodes.length > 3 && (
+              {project.issues!.nodes.length > 3 && (
                 <li className="text-xs text-slate-600 pl-3.5">
-                  +{project.issues.nodes.length - 3} more
+                  +{project.issues!.nodes.length - 3} more
                 </li>
               )}
             </ul>

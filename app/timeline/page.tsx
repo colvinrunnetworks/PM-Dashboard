@@ -208,12 +208,12 @@ function HorizonCard({ item }: { item: HorizonItem }) {
   return (
     <Link
       href={`/programs/${item.teamId}`}
-      className="group block rounded-lg border bg-slate-800/40 transition-all hover:bg-slate-800/70 hover:shadow-md"
+      className="group block rounded-lg border bg-slate-800/40 overflow-hidden transition-all hover:bg-slate-800/70 hover:shadow-md"
       style={{ borderColor: `${item.teamColor}35` }}
     >
       {/* Top accent bar */}
       <div
-        className="h-0.5 rounded-t-lg"
+        className="h-0.5"
         style={{ backgroundColor: item.isOverdue ? '#ef4444' : item.teamColor }}
       />
 
@@ -230,40 +230,38 @@ function HorizonCard({ item }: { item: HorizonItem }) {
             }
           </div>
 
-          <div className="flex-1 min-w-0">
-            {/* Label — links to Linear for projects */}
+          <div className="flex-1 min-w-0 overflow-hidden">
+            {/* Label — opens Linear in new tab for projects (uses button to avoid nested <a>) */}
             {item.linearUrl ? (
-              <a
-                href={item.linearUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="group/link inline-flex items-center gap-1 text-xs font-semibold text-slate-200 hover:text-blue-300 transition-colors leading-tight"
+              <span
+                role="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(item.linearUrl, '_blank', 'noopener,noreferrer'); }}
+                className="group/link inline-flex items-center gap-1 max-w-full text-xs font-semibold text-slate-200 hover:text-blue-300 transition-colors leading-tight cursor-pointer"
                 title="Open in Linear"
               >
-                <span className="truncate">{item.label}</span>
+                <span className="truncate min-w-0">{item.label}</span>
                 <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover/link:opacity-60 transition-opacity" />
-              </a>
+              </span>
             ) : (
               <div className="text-xs font-semibold text-slate-200 leading-tight truncate">
                 {item.label}
               </div>
             )}
-            <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
               {/* Team pill */}
               <span
-                className="rounded px-1.5 py-0.5 font-mono text-xs"
+                className="shrink-0 rounded px-1.5 py-0.5 font-mono text-xs"
                 style={{ color: item.teamColor, backgroundColor: `${item.teamColor}20` }}
               >
                 {item.teamName}
               </span>
               {/* For milestones: show parent project */}
               {isMilestone && (
-                <span className="text-xs text-slate-600 truncate">{item.sublabel}</span>
+                <span className="text-xs text-slate-600 truncate min-w-0">{item.sublabel}</span>
               )}
               {/* PM health badge for projects */}
               {!isMilestone && item.health && (
-                <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', healthClasses(item.health))}>
+                <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-xs font-medium', healthClasses(item.health))}>
                   {healthLabel(item.health)}
                 </span>
               )}
