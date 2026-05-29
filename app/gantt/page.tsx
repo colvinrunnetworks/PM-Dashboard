@@ -303,32 +303,41 @@ function GanttView({ teams, milestoneMap, rangeOverride }: GanttViewProps) {
               const milestones = milestoneMap.get(project.id) ?? [];
 
               return (
-                <div key={project.id} className="flex border-b border-slate-700/20 hover:bg-slate-800/40 transition-colors" style={{ minHeight: 30 }}>
+                <div key={project.id} className="flex border-b border-slate-700/20 hover:bg-slate-800/40 transition-colors" style={{ minHeight: 44 }}>
                   <div className="shrink-0 flex items-center gap-2 border-r border-slate-700/30 px-3 py-1.5" style={{ width: NAME_W }}>
                     <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} title={stateLabel(project.state)} />
                     <span className="text-xs text-slate-300 truncate" title={project.name}>{project.name}</span>
                   </div>
-                  <div className="relative flex-1 flex items-center" style={{ minHeight: 30 }}>
+                  <div className="relative flex-1" style={{ minHeight: 44 }}>
                     {todayPct !== null && <div className="absolute top-0 bottom-0 w-px bg-red-500/20" style={{ left: `${todayPct}%` }} />}
                     {barVisible ? (
                       <div
-                        className="absolute h-4 rounded flex items-center overflow-hidden"
-                        style={{ left: `${clampedLeft}%`, width: `${barWidth}%`, backgroundColor: color, opacity: 0.85 }}
+                        className="absolute h-4 rounded overflow-hidden"
+                        style={{ left: `${clampedLeft}%`, width: `${barWidth}%`, top: 8, backgroundColor: color, opacity: 0.85 }}
                         title={`${project.name}\n${fmtDate(project.startDate)} → ${fmtDate(project.targetDate)}\n${stateLabel(project.state)}`}
                       >
                         <div className="absolute inset-y-0 left-0 rounded opacity-40 bg-white" style={{ width: `${Math.round(project.progress * 100)}%` }} />
-                        {barWidth >= 12 && (
-                          <span
-                            className="relative z-10 px-1.5 font-semibold whitespace-nowrap overflow-hidden"
-                            style={{ fontSize: 9, color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.7)' }}
-                          >
-                            {fmtDateShort(project.startDate)} → {fmtDateShort(project.targetDate)}
-                          </span>
-                        )}
                       </div>
                     ) : !hasBar ? (
-                      <span className="px-3 text-xs text-slate-600 italic">No dates — Backlog</span>
+                      <span className="absolute px-3 text-xs text-slate-600 italic" style={{ top: 13 }}>No dates — Backlog</span>
                     ) : null}
+                    {/* Date labels below the bar */}
+                    {barVisible && (
+                      <>
+                        <span
+                          className="absolute gantt-date-label"
+                          style={{ left: `${clampedLeft}%`, top: 27, fontSize: 9, fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap', pointerEvents: 'none' }}
+                        >
+                          {fmtDateShort(project.startDate)}
+                        </span>
+                        <span
+                          className="absolute gantt-date-label"
+                          style={{ left: `${clampedRight}%`, top: 27, fontSize: 9, fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap', pointerEvents: 'none', transform: 'translateX(-100%)' }}
+                        >
+                          {fmtDateShort(project.targetDate)}
+                        </span>
+                      </>
+                    )}
                     {/* Milestone diamonds */}
                     {milestones.filter(m => m.targetDate).map(m => {
                       const mDate = parseUTC(m.targetDate);
@@ -722,6 +731,7 @@ export default function GanttPage() {
           .gantt-chart-wrapper .text-slate-200 { color: #111827 !important; }
           .gantt-chart-wrapper .text-slate-500,
           .gantt-chart-wrapper .text-slate-600 { color: #6b7280 !important; }
+          .gantt-date-label { color: #111827 !important; }
         }
         .gantt-print-header { display: none; }
       `}</style>
