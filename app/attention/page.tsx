@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  AlertTriangle, Clock, CalendarRange,
-  CheckCircle2, ShieldAlert, PauseCircle,
-  CalendarX, UserX, Activity, Gauge, Inbox,
+  AlertTriangle, Clock, CalendarRange, Info,
+  CheckCircle2, ShieldAlert, PauseCircle, ExternalLink, ChevronDown,
+  CalendarX, UserX, Activity, Gauge, Inbox, User,
 } from 'lucide-react';
 import { fetchPortfolio, fetchBacklogByProject } from '@/lib/api';
 import type { BacklogIssue, BacklogMap } from '@/lib/api';
 import {
-  cn, isAtRisk, isOverdue, daysUntil,
+  cn, isAtRisk, isOverdue, daysUntil, formatDate, formatLeadName,
 } from '@/lib/utils';
 import { CUIBadge } from '@/components/CUIBadge';
 import { RefreshButton } from '@/components/RefreshButton';
@@ -175,17 +175,88 @@ function FilterChips({
   );
 }
 
-// ── Team risk card (compact scorecard) ───────────────────────────────────────
+// ── Drill-down project list for a given flag ─────────────────────────────────
+
+function DrillDownList({ items, flag }: { items: FlaggedProject[]; flag: FlagKey }) {
+  const projects = items.filter(i => i.flags.includes(flag));
+  const meta = FLAG_META[flag];
+
+  return (
+    <div className="border-t border-slate-700/40">
+      <div className="flex items-center gap-1.5 px-4 py-2 bg-slate-900/40">
+        <span className={meta.row}>{meta.icon}</span>
+        <span className={cn('text-xs font-semibold uppercase tracking-wider', meta.row)}>
+          {meta.label} — {projects.length} project{projects.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div className="divide-y divide-slate-700/20">
+        {projects.map(item => {
+          const { project } = item;
+          // Build a short context string for this flag
+          let context = '';
+          if (flag === 'overdue') {
+            context = item.daysLeft === null ? '' : item.daysLeft === 0 ? 'Due today' : `${Math.abs(item.daysLeft)}d overdue`;
+          } else if (flag === 'at-risk' || flag === 'due-soon') {
+            context = item.daysLeft !== null ? `${item.daysLeft}d left` : '';
+          } else if (flag === 'stalled' && project.startDate) {
+            context = `started ${Math.abs(daysUntil(project.startDate))}d ago`;
+          } else if (flag === 'backlog') {
+            context = `${item.backlogIssues.length} issue${item.backlogIssues.length !== 1 ? 's' : ''}`;
+          }
+
+          return (
+            <a
+              key={project.id}
+              href={project.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center gap-3 px-4 py-2.5 hover:bg-slate-700/30 transition-colors"
+            >
+              <div className="flex-1 min-w-0">
+                <span className="text-sm text-slate-200 group-hover:text-blue-300 transition-colors truncate block">
+                  {project.name}
+                </span>
+                <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
+                  {project.lead && (
+                    <span className="flex items-center gap-1">
+                      <User className="h-3 w-3" />{formatLeadName(project.lead.name)}
+                    </span>
+                  )}
+                  {project.targetDate && (
+                    <span className="flex items-center gap-1">
+                      <CalendarRange className="h-3 w-3" />{formatDate(project.targetDate)}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {context && (
+                <span className={cn('text-xs font-medium shrink-0', meta.row)}>{context}</span>
+              )}
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-slate-600 group-hover:text-blue-400 transition-colors" />
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Team risk card (compact scorecard + click-to-drill) ───────────────────────
 
 function TeamRiskCard({ team, projects }: { team: Team; projects: FlaggedProject[] }) {
+  const [openFlag, setOpenFlag] = useState<FlagKey | null>(null);
+
   const allFlags = projects.flatMap(p => p.flags);
-  const hasOverdue = allFlags.includes('overdue');
-  const hasAtRisk  = allFlags.includes('at-risk');
+  const hasOverdue  = allFlags.includes('overdue');
+  const hasAtRisk   = allFlags.includes('at-risk');
   const borderColor = hasOverdue ? '#ef444435' : hasAtRisk ? '#f9731635' : '#33415540';
 
-  // Count how many projects have each flag
   const counts: Partial<Record<FlagKey, number>> = {};
   for (const f of allFlags) counts[f] = (counts[f] ?? 0) + 1;
+
+  function toggleFlag(f: FlagKey) {
+    setOpenFlag(prev => prev === f ? null : f);
+  }
 
   return (
     <div className="rounded-lg border bg-slate-800/40" style={{ borderColor }}>
@@ -208,20 +279,25 @@ function TeamRiskCard({ team, projects }: { team: Team; projects: FlaggedProject
       {/* Risk category count grid */}
       <div className="grid grid-cols-3 gap-px bg-slate-700/20 border-t border-slate-700/20">
         {FLAG_ORDER.map(f => {
-          const count  = counts[f] ?? 0;
-          const active = count > 0;
+          const count    = counts[f] ?? 0;
+          const active   = count > 0;
+          const selected = openFlag === f;
           return (
-            <div
+            <button
               key={f}
+              onClick={() => active && toggleFlag(f)}
+              disabled={!active}
               className={cn(
-                'flex items-center gap-2 px-3 py-2.5 bg-slate-800/40',
-                active ? '' : 'opacity-30'
+                'flex items-center gap-2 px-3 py-2.5 bg-slate-800/40 text-left transition-colors w-full',
+                active && !selected && 'hover:bg-slate-700/50 cursor-pointer',
+                active && selected && 'bg-slate-700/60',
+                !active && 'opacity-30 cursor-default'
               )}
             >
               <span className={cn('shrink-0', active ? FLAG_META[f].row : 'text-slate-600')}>
                 {FLAG_META[f].icon}
               </span>
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <span className={cn('block text-base font-bold tabular-nums leading-none', active ? FLAG_META[f].row : 'text-slate-600')}>
                   {count}
                 </span>
@@ -229,10 +305,16 @@ function TeamRiskCard({ team, projects }: { team: Team; projects: FlaggedProject
                   {FLAG_META[f].label}
                 </span>
               </span>
-            </div>
+              {active && (
+                <ChevronDown className={cn('h-3 w-3 shrink-0 text-slate-500 transition-transform', selected && 'rotate-180')} />
+              )}
+            </button>
           );
         })}
       </div>
+
+      {/* Drill-down list */}
+      {openFlag && <DrillDownList items={projects} flag={openFlag} />}
     </div>
   );
 }
@@ -355,6 +437,14 @@ export default function AttentionPage() {
             <AllClearBanner />
           ) : (
             <>
+              {/* Hint banner */}
+              <div className="flex items-start gap-2.5 rounded-lg border border-blue-900/40 bg-blue-950/20 px-4 py-3 text-xs text-blue-300/80">
+                <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-400/60" />
+                <span>
+                  Select a <span className="font-semibold text-blue-300">team</span> below to focus on it, then click any risk category to see the affected projects and jump directly to them in Linear.
+                </span>
+              </div>
+
               {/* Team picker */}
               {teamList.length > 1 && (
                 <div className="flex flex-wrap gap-2">
