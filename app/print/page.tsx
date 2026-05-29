@@ -325,7 +325,7 @@ const RISK_FLAG_DESC: Record<string, string> = {
   'On Hold':        'Paused — blocked or deprioritized',
   'No Deadline':    'Active project missing a target date',
   'No Lead':        'No DRI or PM assigned',
-  'Health Not Set': 'PM has not submitted a status check-in',
+  'Health Not Set': 'PM check-ins not yet enabled',
   'Backlog Issues': 'Unprioritized issues need triage',
 };
 
@@ -335,9 +335,13 @@ function RiskSummaryTiles({ items }: { items: RiskItem[] }) {
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(9, 1fr)', gap: 8, marginBottom: 4 }}>
       {RISK_FLAGS.map(({ key, color }) => {
         const n = counts[key] ?? 0;
+        const isPlaceholder = key === 'Health Not Set';
         return (
-          <div key={key} style={{ textAlign: 'center', padding: '10px 6px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
-            <div style={{ fontSize: 26, fontWeight: 700, color: n > 0 ? color : '#d1d5db', lineHeight: 1 }}>{n}</div>
+          <div key={key} style={{ textAlign: 'center', padding: '10px 6px', borderRadius: 6, border: `1px solid ${isPlaceholder ? '#e5e7eb' : '#e5e7eb'}`, backgroundColor: isPlaceholder ? '#f9fafb' : '#fafafa', opacity: isPlaceholder ? 0.5 : 1 }}>
+            {isPlaceholder
+              ? <div style={{ fontSize: 10, fontWeight: 600, color: '#9ca3af', lineHeight: 1, marginTop: 2, marginBottom: 2 }}>— Planned —</div>
+              : <div style={{ fontSize: 26, fontWeight: 700, color: n > 0 ? color : '#d1d5db', lineHeight: 1 }}>{n}</div>
+            }
             <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4, lineHeight: 1.2 }}>{key}</div>
             <div style={{ fontSize: 8, color: '#9ca3af', marginTop: 3, lineHeight: 1.3 }}>{RISK_FLAG_DESC[key]}</div>
           </div>
@@ -359,7 +363,9 @@ function TeamRiskMatrix({ teams, riskItems }: { teams: Team[]; riskItems: RiskIt
           <tr style={{ backgroundColor: '#f3f4f6' }}>
             <th style={{ padding: '5px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af' }}>Team</th>
             {RISK_FLAGS.map(({ key }) => (
-              <th key={key} style={{ padding: '5px 6px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9ca3af', whiteSpace: 'nowrap' }}>{key}</th>
+              <th key={key} style={{ padding: '5px 6px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: key === 'Health Not Set' ? '#d1d5db' : '#9ca3af', whiteSpace: 'nowrap', opacity: key === 'Health Not Set' ? 0.5 : 1 }}>
+                {key === 'Health Not Set' ? 'Health (Planned)' : key}
+              </th>
             ))}
           </tr>
         </thead>
@@ -377,8 +383,9 @@ function TeamRiskMatrix({ teams, riskItems }: { teams: Team[]; riskItems: RiskIt
                   </div>
                 </td>
                 {RISK_FLAGS.map(({ key, color }) => {
+                  if (key === 'Health Not Set') return <td key={key} style={{ padding: '6px 8px', textAlign: 'center', color: '#d1d5db', fontSize: 10, opacity: 0.5 }}>—</td>;
                   const n = counts[key] ?? 0;
-                  return <Cell key={key} value={n} bad={n > 0 && (key === 'Overdue')} warn={n > 0 && (key === 'At Risk' || key === 'Due Soon' || key === 'Stalled' || key === 'Backlog Issues')} neutral={n === 0 || key === 'On Hold' || key === 'No Deadline' || key === 'No Lead' || key === 'Health Not Set'} color={n > 0 ? color : undefined} />;
+                  return <Cell key={key} value={n} bad={n > 0 && (key === 'Overdue')} warn={n > 0 && (key === 'At Risk' || key === 'Due Soon' || key === 'Stalled' || key === 'Backlog Issues')} neutral={n === 0 || key === 'On Hold' || key === 'No Deadline' || key === 'No Lead'} color={n > 0 ? color : undefined} />;
                 })}
               </tr>
             );
@@ -625,8 +632,8 @@ function ProjectDetailSection({ teams }: { teams: Team[] }) {
         <thead>
           <tr style={{ backgroundColor: '#f3f4f6' }}>
             <th style={{ width: 4, padding: 0 }} />
-            {['Team', 'Project', 'Status', 'Burn Rate', 'Target Date', 'Lead', 'PM Health', 'Milestones (90d)'].map(h => (
-              <th key={h} style={{ padding: '5px 8px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
+            {['Team', 'Project', 'Status', 'Burn Rate', 'Target Date', 'Lead', 'PM Health (Planned)', 'Milestones (90d)'].map(h => (
+              <th key={h} style={{ padding: '5px 8px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: h.includes('Planned') ? '#d1d5db' : '#6b7280', textAlign: 'left', whiteSpace: 'nowrap', opacity: h.includes('Planned') ? 0.5 : 1 }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -721,7 +728,7 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
     stuckInBacklog:  acc.stuckInBacklog  + h.stuckInBacklog,
   }), { active: 0, withLead: 0, withTargetDate: 0, withStartDate: 0, withHealth: 0, withDescription: 0, withPriority: 0, stuckInBacklog: 0 });
 
-  const cols = ['Lead', 'Target Date', 'Start Date', 'PM Health', 'Description', 'Priority'];
+  const cols = ['Lead', 'Target Date', 'Start Date', 'PM Health (Planned)', 'Description', 'Priority'];
 
   return (
     <>
@@ -730,19 +737,22 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
         {[
           { label: 'Lead Coverage',    desc: 'Projects with a named DRI assigned',           n: totals.withLead,        color: '#2563eb' },
           { label: 'Target Dates',     desc: 'Projects with a delivery deadline set',         n: totals.withTargetDate,  color: '#16a34a' },
-          { label: 'PM Health Set',    desc: 'Projects with an active health status update',  n: totals.withHealth,      color: '#7c3aed' },
+          { label: 'PM Health Set',    desc: 'Not yet enabled — planned for future use',       n: totals.withHealth,      color: '#7c3aed', placeholder: true },
           { label: 'Has Description',  desc: 'Projects with scope or objective documented',   n: totals.withDescription, color: '#d97706' },
           { label: 'Priority Set',     desc: 'Projects with Urgent / High / Normal priority', n: totals.withPriority,    color: '#dc2626' },
-        ].map(({ label, desc, n, color }) => {
+        ].map(({ label, desc, n, color, placeholder }) => {
           const p = pct(n, totals.active);
           return (
-            <div key={label} style={{ flex: 1, minWidth: 100, padding: '10px 14px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
-              <div style={{ fontSize: 22, fontWeight: 700, color: p >= 80 ? '#16a34a' : p >= 60 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{p}%</div>
+            <div key={label} style={{ flex: 1, minWidth: 100, padding: '10px 14px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: placeholder ? '#f9fafb' : '#fafafa', opacity: placeholder ? 0.45 : 1 }}>
+              {placeholder
+                ? <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', lineHeight: 1, marginTop: 2, marginBottom: 2 }}>— Planned —</div>
+                : <div style={{ fontSize: 22, fontWeight: 700, color: p >= 80 ? '#16a34a' : p >= 60 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{p}%</div>
+              }
               <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>{label}</div>
               <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 3, lineHeight: 1.3 }}>{desc}</div>
-              <div style={{ marginTop: 6, height: 4, borderRadius: 2, backgroundColor: '#e5e7eb' }}>
+              {!placeholder && <div style={{ marginTop: 6, height: 4, borderRadius: 2, backgroundColor: '#e5e7eb' }}>
                 <div style={{ height: '100%', borderRadius: 2, width: `${p}%`, backgroundColor: color }} />
-              </div>
+              </div>}
             </div>
           );
         })}
@@ -766,7 +776,7 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
           <tr style={{ backgroundColor: '#f3f4f6' }}>
             <th style={{ padding: '5px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af' }}>Team</th>
             <th style={{ padding: '5px 8px', textAlign: 'center', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af' }}>Active</th>
-            {cols.map(c => <th key={c} style={{ padding: '5px 8px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9ca3af', whiteSpace: 'nowrap' }}>{c}</th>)}
+            {cols.map(c => <th key={c} style={{ padding: '5px 8px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: c.includes('Planned') ? '#d1d5db' : '#9ca3af', whiteSpace: 'nowrap', opacity: c.includes('Planned') ? 0.5 : 1 }}>{c}</th>)}
             <th style={{ padding: '5px 8px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#dc2626', whiteSpace: 'nowrap' }}>Stuck</th>
           </tr>
         </thead>
@@ -784,7 +794,7 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
               <HygieneCell n={h.withLead}        total={h.active} />
               <HygieneCell n={h.withTargetDate}  total={h.active} />
               <HygieneCell n={h.withStartDate}   total={h.active} />
-              <HygieneCell n={h.withHealth}      total={h.active} />
+              <td style={{ padding: '6px 8px', textAlign: 'center', color: '#d1d5db', fontSize: 10, opacity: 0.45 }}>—</td>
               <HygieneCell n={h.withDescription} total={h.active} />
               <HygieneCell n={h.withPriority}    total={h.active} warn={40} bad={20} />
               <StuckBadge count={h.stuckInBacklog} />
@@ -797,7 +807,7 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
             <HygieneCell n={totals.withLead}        total={totals.active} />
             <HygieneCell n={totals.withTargetDate}  total={totals.active} />
             <HygieneCell n={totals.withStartDate}   total={totals.active} />
-            <HygieneCell n={totals.withHealth}      total={totals.active} />
+            <td style={{ padding: '6px 8px', textAlign: 'center', color: '#d1d5db', fontSize: 10, opacity: 0.45 }}>—</td>
             <HygieneCell n={totals.withDescription} total={totals.active} />
             <HygieneCell n={totals.withPriority}    total={totals.active} warn={40} bad={20} />
             <StuckBadge count={totals.stuckInBacklog} />
