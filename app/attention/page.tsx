@@ -195,30 +195,15 @@ function FilterChips({
   );
 }
 
-// ── Risk Card ─────────────────────────────────────────────────────────────────
+// ── Project row inside a team risk card ───────────────────────────────────────
 
-function RiskCard({ item }: { item: FlaggedProject }) {
-  const { project, team } = item;
-  const isOverdueItem = item.flags.includes('overdue');
-  const isAtRiskItem  = item.flags.includes('at-risk');
-  const borderColor   = isOverdueItem ? '#ef444435' : isAtRiskItem ? '#f9731635' : '#33415540';
-
+function ProjectRiskRow({ item }: { item: FlaggedProject }) {
+  const { project } = item;
   return (
-    <div className="rounded-lg border bg-slate-800/40 flex flex-col" style={{ borderColor }}>
-
-      {/* ── Header: team + project ── */}
-      <div className="px-4 pt-3 pb-2 flex items-start gap-3 border-b border-slate-700/40">
+    <div className="px-4 py-3 flex flex-col gap-2 border-t border-slate-700/30">
+      {/* Name + meta + status */}
+      <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
-          {/* Team line */}
-          <div className="flex items-center gap-1.5 mb-1">
-            <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: team.color }} />
-            <span className="text-xs text-slate-500">{team.name}</span>
-            <span className="rounded px-1 py-0.5 font-mono text-xs" style={{ color: team.color, backgroundColor: `${team.color}20` }}>
-              {team.key}
-            </span>
-            {team.isCUI && <CUIBadge compact />}
-          </div>
-          {/* Project name */}
           <a
             href={project.url}
             target="_blank"
@@ -228,13 +213,11 @@ function RiskCard({ item }: { item: FlaggedProject }) {
             {project.name}
             <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
           </a>
-          {/* Meta: lead · dates */}
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
             <span className="flex items-center gap-1">
               {project.lead
                 ? <><User className="h-3 w-3" />{formatLeadName(project.lead.name)}</>
-                : <><UserX className="h-3 w-3 text-slate-600" /><span className="italic text-slate-600">No lead</span></>
-              }
+                : <><UserX className="h-3 w-3 text-slate-600" /><span className="italic text-slate-600">No lead</span></>}
             </span>
             {(project.startDate || project.targetDate) && (
               <span className="flex items-center gap-1">
@@ -245,7 +228,7 @@ function RiskCard({ item }: { item: FlaggedProject }) {
             )}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <div className="flex flex-col items-end gap-1 shrink-0">
           <StatusBadge state={project.state} />
           {project.health && (
             <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', healthClasses(project.health))}>
@@ -255,39 +238,77 @@ function RiskCard({ item }: { item: FlaggedProject }) {
         </div>
       </div>
 
-      {/* ── Risk scorecard: all categories ── */}
-      <div className="px-4 py-3 grid grid-cols-3 gap-2">
-        {FLAG_ORDER.map(f => {
-          const active = item.flags.includes(f);
-          const sub    = active ? flagSub(f, item) : '';
+      {/* Active flag chips — only flags that apply */}
+      <div className="flex flex-wrap gap-1.5">
+        {item.flags.map(f => {
+          const sub = flagSub(f, item);
           return (
-            <div
-              key={f}
-              className={cn(
-                'flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors',
-                active ? FLAG_META[f].badge : 'border-slate-800 text-slate-700 bg-transparent'
-              )}
-            >
-              <span className={active ? '' : 'opacity-30'}>{FLAG_META[f].icon}</span>
-              <span className="truncate leading-tight">
-                {FLAG_META[f].label}
-                {sub && <span className="ml-1 font-normal opacity-80">{sub}</span>}
-              </span>
-            </div>
+            <span key={f} className={cn('flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-medium', FLAG_META[f].badge)}>
+              {FLAG_META[f].icon}
+              {FLAG_META[f].label}
+              {sub && <span className="opacity-75 font-normal">{sub}</span>}
+            </span>
           );
         })}
       </div>
 
-      {/* ── Progress ── */}
-      <div className="px-4 pb-3">
-        <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+      {/* Progress */}
+      <div>
+        <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
           <span>Progress</span>
-          <span className={project.progress < 0.25 ? 'text-red-400 font-medium' : ''}>
+          <span className={project.progress < 0.25 ? 'text-red-400 font-medium' : 'text-slate-500'}>
             {Math.round(project.progress * 100)}%
           </span>
         </div>
-        <ProgressBar progress={project.progress} height="md" showLabel={false} />
+        <ProgressBar progress={project.progress} height="sm" showLabel={false} />
       </div>
+    </div>
+  );
+}
+
+// ── Team risk card (one per team) ─────────────────────────────────────────────
+
+function TeamRiskCard({ team, projects }: { team: Team; projects: FlaggedProject[] }) {
+  // Worst-case border color based on highest-priority flag across all projects
+  const allFlags = projects.flatMap(p => p.flags);
+  const hasOverdue  = allFlags.includes('overdue');
+  const hasAtRisk   = allFlags.includes('at-risk');
+  const borderColor = hasOverdue ? '#ef444435' : hasAtRisk ? '#f9731635' : '#33415540';
+
+  // Unique flags across all team projects for the summary row
+  const uniqueFlags = FLAG_ORDER.filter(f => allFlags.includes(f));
+
+  return (
+    <div className="rounded-lg border bg-slate-800/40" style={{ borderColor }}>
+      {/* Team header */}
+      <div className="flex items-center gap-2 px-4 py-3 rounded-t-lg" style={{ borderBottom: `1px solid ${team.color}25`, backgroundColor: `${team.color}0d` }}>
+        <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: team.color }} />
+        <span className="text-sm font-bold text-white">{team.name}</span>
+        <span className="rounded px-1.5 py-0.5 font-mono text-xs" style={{ color: team.color, backgroundColor: `${team.color}25` }}>
+          {team.key}
+        </span>
+        {team.isCUI && <CUIBadge compact />}
+        <span className="ml-auto text-xs text-slate-500">
+          {projects.length} flagged project{projects.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* Flag summary chips for this team */}
+      {uniqueFlags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-4 py-2 border-b border-slate-700/30 bg-slate-900/20">
+          {uniqueFlags.map(f => (
+            <span key={f} className={cn('flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', FLAG_META[f].badge)}>
+              {FLAG_META[f].icon}
+              {FLAG_META[f].label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Project rows */}
+      {projects.map(item => (
+        <ProjectRiskRow key={item.project.id} item={item} />
+      ))}
     </div>
   );
 }
@@ -363,6 +384,16 @@ export default function AttentionPage() {
     if (!activeFilter) return teamFiltered;
     return teamFiltered.filter(item => item.flags.includes(activeFilter));
   }, [teamFiltered, activeFilter]);
+
+  // Group visible items by team, preserving sort order
+  const groupedByTeam = useMemo(() => {
+    const map = new Map<string, { team: Team; projects: FlaggedProject[] }>();
+    for (const item of visibleItems) {
+      if (!map.has(item.team.id)) map.set(item.team.id, { team: item.team, projects: [] });
+      map.get(item.team.id)!.projects.push(item);
+    }
+    return [...map.values()];
+  }, [visibleItems]);
 
   const filtersActive = selectedTeamId !== null || activeFilter !== null;
 
@@ -440,8 +471,8 @@ export default function AttentionPage() {
                 <EmptyFilter flag={activeFilter} />
               ) : (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {visibleItems.map(item => (
-                    <RiskCard key={item.project.id} item={item} />
+                  {groupedByTeam.map(({ team, projects }) => (
+                    <TeamRiskCard key={team.id} team={team} projects={projects} />
                   ))}
                 </div>
               )}
