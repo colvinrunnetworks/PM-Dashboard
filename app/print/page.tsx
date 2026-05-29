@@ -445,57 +445,175 @@ function upcomingMilestones(project: Project): string {
     .join('; ') || '—';
 }
 
-function ProjectTableRow({ project, teamColor }: { project: Project; teamColor: string }) {
-  const pct     = Math.round(project.progress * 100);
-  const overdue = isOverdue(project);
-  const atRisk  = isAtRisk(project);
-  const statusStyle: React.CSSProperties = overdue ? { color: '#dc2626', fontWeight: 600 } : atRisk ? { color: '#d97706', fontWeight: 600 } : { color: '#374151' };
+// Burn rate: how far through the timeline vs how far through the work
+function burnRate(project: Project): { elapsed: number; done: number; gap: number } | null {
+  if (!project.startDate || !project.targetDate) return null;
+  const start = new Date(project.startDate).getTime();
+  const end   = new Date(project.targetDate).getTime();
+  if (end <= start) return null;
+  const elapsed = Math.max(0, Math.min(1, (Date.now() - start) / (end - start)));
+  const done    = project.progress;
+  return { elapsed, done, gap: elapsed - done };
+}
+
+// Sort severity: 0=overdue…5=planned
+function projectSeverity(p: Project): number {
+  if (isOverdue(p))  return 0;
+  if (isAtRisk(p))   return 1;
+  if (p.state === 'started' && p.targetDate && daysUntil(p.targetDate) <= 30 && p.progress < 0.5) return 2;
+  if (p.state === 'started' && p.progress === 0 && p.startDate && daysUntil(p.startDate) < 0) return 3;
+  if (p.state === 'paused')  return 4;
+  return 5;
+}
+
+interface FlatProject { project: Project; team: Team }
+
+function flattenAndSort(teams: Team[]): FlatProject[] {
+  const seen = new Set<string>();
+  const flat: FlatProject[] = [];
+  for (const team of teams) {
+    for (const project of team.projects.nodes) {
+      if (project.state === 'completed' || project.state === 'cancelled') continue;
+      if (seen.has(project.id)) continue;
+      seen.add(project.id);
+      flat.push({ project, team });
+    }
+  }
+  return flat.sort((a, b) => {
+    const sd = projectSeverity(a.project) - projectSeverity(b.project);
+    if (sd !== 0) return sd;
+    return (daysUntil(a.project.targetDate ?? '') ?? 9999) - (daysUntil(b.project.targetDate ?? '') ?? 9999);
+  });
+}
+
+// ── Data Quality Block ────────────────────────────────────────────────────────
+
+function DataQualityBlock({ projects }: { projects: FlatProject[] }) {
+  const missingHealth   = projects.filter(({ project: p }) => p.health === null).length;
+  const missingDeadline = projects.filter(({ project: p }) => !p.targetDate).length;
+  const missingLead     = projects.filter(({ project: p }) => !p.lead).length;
+  const stalled         = projects.filter(({ project: p }) => p.state === 'started' && p.progress === 0 && p.startDate && daysUntil(p.startDate) < 0).length;
+  const total           = projects.length;
+
+  const items = [
+    { label: 'Missing health status', count: missingHealth,   color: '#6b7280' },
+    { label: 'Missing deadline',      count: missingDeadline, color: '#d97706' },
+    { label: 'Missing lead',          count: missingLead,     color: '#d97706' },
+    { label: 'Stalled (0% progress)', count: stalled,         color: '#7c3aed' },
+  ].filter(i => i.count > 0);
+
+  if (items.length === 0) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 6, border: '1px solid #bbf7d0', backgroundColor: '#f0fdf4', marginBottom: 16 }}>
+      <span style={{ fontSize: 14 }}>✓</span>
+      <span style={{ fontSize: 12, color: '#15803d', fontWeight: 500 }}>All {total} active projects have complete data.</span>
+    </div>
+  );
+
   return (
-    <tr className="print-no-break" style={{ borderBottom: '1px solid #e5e7eb' }}>
-      <td style={{ width: 4, padding: 0, backgroundColor: teamColor }} />
-      <td style={{ padding: '6px 8px', fontSize: 13, color: '#111827' }}>{project.name}</td>
-      <td style={{ padding: '6px 8px', fontSize: 12, ...statusStyle }}>{statusText(project)}</td>
-      <td style={{ padding: '6px 8px', fontSize: 12, color: '#374151' }}>{healthText(project)}</td>
-      <td style={{ padding: '6px 8px', fontSize: 12, color: '#374151' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 60, height: 6, borderRadius: 3, backgroundColor: '#e5e7eb', overflow: 'hidden', flexShrink: 0 }}>
-            <div style={{ height: '100%', borderRadius: 3, width: `${pct}%`, backgroundColor: pct >= 80 ? '#22c55e' : pct >= 50 ? '#3b82f6' : pct >= 25 ? '#eab308' : '#ef4444' }} />
-          </div>
-          <span style={{ whiteSpace: 'nowrap' }}>{pct}%</span>
-        </div>
+    <div style={{ padding: '10px 16px', borderRadius: 6, border: '1px solid #fde68a', backgroundColor: '#fffbeb', marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#92400e', marginBottom: 8 }}>
+        Data Quality — {total} active projects
+      </div>
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+        {items.map(({ label, count, color }) => (
+          <span key={label} style={{ fontSize: 12, color }}>
+            <strong>{count}</strong> {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Burn rate cell ────────────────────────────────────────────────────────────
+
+function BurnRateCell({ project }: { project: Project }) {
+  const br = burnRate(project);
+  if (!br) return <td style={{ padding: '6px 8px', fontSize: 11, color: '#d1d5db', textAlign: 'center' }}>—</td>;
+
+  const elapsedPct = Math.round(br.elapsed * 100);
+  const donePct    = Math.round(br.done * 100);
+  const gapPct     = Math.round(br.gap * 100);
+  const color      = gapPct > 25 ? '#dc2626' : gapPct > 10 ? '#d97706' : '#16a34a';
+  const bg         = gapPct > 25 ? '#fef2f2' : gapPct > 10 ? '#fffbeb' : 'transparent';
+
+  return (
+    <td style={{ padding: '5px 8px', textAlign: 'center', backgroundColor: bg }}>
+      <div style={{ fontSize: 10, color: '#9ca3af' }}>{elapsedPct}% elapsed</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color }}>{donePct}% done</div>
+      {gapPct > 10 && <div style={{ fontSize: 9, color, opacity: 0.8 }}>▲ {gapPct}% behind</div>}
+    </td>
+  );
+}
+
+// ── Flat project row ──────────────────────────────────────────────────────────
+
+const STATUS_PILL: Record<string, React.CSSProperties> = {
+  'Overdue':  { backgroundColor: '#fef2f2', color: '#dc2626', fontWeight: 700 },
+  'At Risk':  { backgroundColor: '#fff7ed', color: '#d97706', fontWeight: 700 },
+  'Due Soon': { backgroundColor: '#fefce8', color: '#ca8a04', fontWeight: 600 },
+  'Stalled':  { backgroundColor: '#faf5ff', color: '#7c3aed', fontWeight: 600 },
+  'On Hold':  { backgroundColor: '#eff6ff', color: '#2563eb', fontWeight: 600 },
+};
+
+function FlatProjectRow({ project, team }: FlatProject) {
+  const status = statusText(project);
+  const pillStyle = STATUS_PILL[status] ?? { color: '#374151' };
+
+  return (
+    <tr className="print-no-break" style={{ borderBottom: '1px solid #f3f4f6' }}>
+      {/* Team color bar */}
+      <td style={{ width: 4, padding: 0, backgroundColor: team.color }} />
+      {/* Team badge */}
+      <td style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 9, fontFamily: 'monospace', color: team.color, backgroundColor: `${team.color}20`, padding: '1px 5px', borderRadius: 3 }}>
+          {team.key}
+        </span>
       </td>
-      <td style={{ padding: '6px 8px', fontSize: 12, color: overdue ? '#dc2626' : '#374151', whiteSpace: 'nowrap' }}>{formatDate(project.targetDate)}</td>
-      <td style={{ padding: '6px 8px', fontSize: 12, color: '#374151' }}>{project.lead ? formatLeadName(project.lead.name) : '—'}</td>
-      <td style={{ padding: '6px 8px', fontSize: 11, color: '#6b7280', maxWidth: 260 }}>{upcomingMilestones(project)}</td>
+      {/* Project name */}
+      <td style={{ padding: '6px 8px', fontSize: 12, color: '#111827', fontWeight: 500 }}>{project.name}</td>
+      {/* Status */}
+      <td style={{ padding: '5px 8px', whiteSpace: 'nowrap' }}>
+        <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, ...pillStyle }}>{status}</span>
+      </td>
+      {/* Burn rate */}
+      <BurnRateCell project={project} />
+      {/* Target date */}
+      <td style={{ padding: '6px 8px', fontSize: 11, color: isOverdue(project) ? '#dc2626' : '#374151', whiteSpace: 'nowrap' }}>
+        {formatDate(project.targetDate)}
+      </td>
+      {/* Lead */}
+      <td style={{ padding: '6px 8px', fontSize: 11, color: project.lead ? '#374151' : '#d1d5db', fontStyle: project.lead ? 'normal' : 'italic' }}>
+        {project.lead ? formatLeadName(project.lead.name) : 'No lead'}
+      </td>
+      {/* PM Health */}
+      <td style={{ padding: '6px 8px', fontSize: 11, color: '#374151' }}>{healthText(project)}</td>
+      {/* Milestones */}
+      <td style={{ padding: '6px 8px', fontSize: 10, color: '#6b7280', maxWidth: 200 }}>{upcomingMilestones(project)}</td>
     </tr>
   );
 }
 
-function TeamSection({ team }: { team: Team }) {
-  const active = team.projects.nodes.filter(p => p.state !== 'completed' && p.state !== 'cancelled');
-  if (active.length === 0) return null;
+function ProjectDetailSection({ teams }: { teams: Team[] }) {
+  const flat = flattenAndSort(teams);
+  if (flat.length === 0) return null;
   return (
-    <div className="print-no-break" style={{ marginBottom: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${team.color}`, paddingBottom: 4, marginBottom: 8 }}>
-        <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: team.color, flexShrink: 0, display: 'inline-block' }} />
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>{team.name}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, fontFamily: 'monospace', color: team.color, backgroundColor: `${team.color}20`, padding: '1px 6px', borderRadius: 3 }}>{team.key}</span>
-        <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 'auto' }}>{active.length} active project{active.length !== 1 ? 's' : ''}</span>
-      </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <>
+      <DataQualityBlock projects={flat} />
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr style={{ backgroundColor: '#f3f4f6' }}>
             <th style={{ width: 4, padding: 0 }} />
-            {['Project', 'Status', 'PM Health', 'Progress', 'Target Date', 'Lead', 'Upcoming Milestones (90d)'].map(h => (
+            {['Team', 'Project', 'Status', 'Burn Rate', 'Target Date', 'Lead', 'PM Health', 'Milestones (90d)'].map(h => (
               <th key={h} style={{ padding: '5px 8px', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {active.map(project => <ProjectTableRow key={project.id} project={project} teamColor={team.color} />)}
+          {flat.map(({ project, team }) => <FlatProjectRow key={project.id} project={project} team={team} />)}
         </tbody>
       </table>
-    </div>
+    </>
   );
 }
 
@@ -688,48 +806,82 @@ function generateReportHTML(
       </table>
     </div>`;
 
-  // ── Page 2: Project Detail ────────────────────────────────────────────────────
-  const teamSections = teams.map(team => {
-    const active = team.projects.nodes.filter(p => p.state !== 'completed' && p.state !== 'cancelled');
-    if (active.length === 0) return '';
-    const rows = active.map(project => {
-      const pct = Math.round(project.progress * 100);
-      const overdue = isOverdue(project);
-      const atRisk  = isAtRisk(project);
-      const statusColor = overdue ? '#dc2626' : atRisk ? '#d97706' : '#374151';
-      const pgColor     = pct >= 80 ? '#22c55e' : pct >= 50 ? '#3b82f6' : pct >= 25 ? '#eab308' : '#ef4444';
-      return `<tr style="border-bottom:1px solid #e5e7eb">
-        <td style="width:4px;padding:0;background:${team.color}"></td>
-        <td style="padding:6px 8px;font-size:13px;color:#111827">${esc(project.name)}</td>
-        <td style="padding:6px 8px;font-size:12px;color:${statusColor};font-weight:${overdue||atRisk?600:400}">${esc(statusText(project))}</td>
-        <td style="padding:6px 8px;font-size:12px;color:#374151">${esc(healthText(project))}</td>
-        <td style="padding:6px 8px;font-size:12px">
-          <div style="display:flex;align-items:center;gap:6px">
-            <div style="width:60px;height:6px;border-radius:3px;background:#e5e7eb;overflow:hidden;flex-shrink:0"><div style="height:100%;width:${pct}%;border-radius:3px;background:${pgColor}"></div></div>
-            <span style="white-space:nowrap;color:#374151">${pct}%</span>
-          </div>
-        </td>
-        <td style="padding:6px 8px;font-size:12px;color:${overdue?'#dc2626':'#374151'};white-space:nowrap">${esc(formatDate(project.targetDate))}</td>
-        <td style="padding:6px 8px;font-size:12px;color:#374151">${esc(project.lead ? formatLeadName(project.lead.name) : '—')}</td>
-        <td style="padding:6px 8px;font-size:11px;color:#6b7280;max-width:260px">${esc(upcomingMilestones(project))}</td>
-      </tr>`;
-    }).join('');
-    return `<div style="margin-bottom:24px;page-break-inside:avoid">
-      <div style="display:flex;align-items:center;gap:8px;border-bottom:2px solid ${team.color};padding-bottom:4px;margin-bottom:8px">
-        <span style="width:10px;height:10px;border-radius:50%;background:${team.color};flex-shrink:0;display:inline-block"></span>
-        <span style="font-size:14px;font-weight:700;color:#111827">${esc(team.name)}</span>
-        <span style="font-size:11px;font-weight:600;font-family:monospace;color:${team.color};background:${team.color}20;padding:1px 6px;border-radius:3px">${esc(team.key)}</span>
-        <span style="font-size:11px;color:#6b7280;margin-left:auto">${active.length} active project${active.length !== 1 ? 's' : ''}</span>
-      </div>
-      <table style="width:100%;border-collapse:collapse">
-        <thead><tr style="background:#f3f4f6">
-          <th style="width:4px;padding:0"></th>
-          ${['Project','Status','PM Health','Progress','Target Date','Lead','Upcoming Milestones (90d)'].map(h=>`<th style="padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:left;white-space:nowrap">${h}</th>`).join('')}
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+  // ── Page 2: Project Detail (flat sorted, exception-first) ────────────────────
+  const flat = flattenAndSort(teams);
+
+  // Data quality callout
+  const missingHealth   = flat.filter(({ project: p }) => p.health === null).length;
+  const missingDeadline = flat.filter(({ project: p }) => !p.targetDate).length;
+  const missingLead     = flat.filter(({ project: p }) => !p.lead).length;
+  const stalledCount    = flat.filter(({ project: p }) => p.state === 'started' && p.progress === 0 && p.startDate && daysUntil(p.startDate) < 0).length;
+  const dqItems = [
+    { label: 'missing health status', count: missingHealth,   color: '#6b7280' },
+    { label: 'missing deadline',      count: missingDeadline, color: '#d97706' },
+    { label: 'missing lead',          count: missingLead,     color: '#d97706' },
+    { label: 'stalled (0% progress)', count: stalledCount,    color: '#7c3aed' },
+  ].filter(i => i.count > 0);
+
+  const dqHtml = dqItems.length === 0
+    ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px;border:1px solid #bbf7d0;background:#f0fdf4;margin-bottom:16px">
+        <span style="font-size:14px">✓</span>
+        <span style="font-size:12px;color:#15803d;font-weight:500">All ${flat.length} active projects have complete data.</span>
+       </div>`
+    : `<div style="padding:10px 16px;border-radius:6px;border:1px solid #fde68a;background:#fffbeb;margin-bottom:16px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#92400e;margin-bottom:8px">Data Quality — ${flat.length} active projects</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">${dqItems.map(({ label, count, color }) => `<span style="font-size:12px;color:${color}"><strong>${count}</strong> ${label}</span>`).join('')}</div>
+       </div>`;
+
+  const STATUS_PILL_HTML: Record<string, string> = {
+    'Overdue':  'background:#fef2f2;color:#dc2626;font-weight:700',
+    'At Risk':  'background:#fff7ed;color:#d97706;font-weight:700',
+    'Due Soon': 'background:#fefce8;color:#ca8a04;font-weight:600',
+    'Stalled':  'background:#faf5ff;color:#7c3aed;font-weight:600',
+    'On Hold':  'background:#eff6ff;color:#2563eb;font-weight:600',
+  };
+
+  const flatRows = flat.map(({ project, team }) => {
+    const status = statusText(project);
+    const pillStyle = STATUS_PILL_HTML[status] ?? 'color:#374151';
+    const overdue = isOverdue(project);
+
+    // Burn rate cell
+    const br = burnRate(project);
+    let brCell = `<td style="padding:6px 8px;font-size:11px;color:#d1d5db;text-align:center">—</td>`;
+    if (br) {
+      const elapsedPct = Math.round(br.elapsed * 100);
+      const donePct    = Math.round(br.done * 100);
+      const gapPct     = Math.round(br.gap * 100);
+      const color      = gapPct > 25 ? '#dc2626' : gapPct > 10 ? '#d97706' : '#16a34a';
+      const bg         = gapPct > 25 ? '#fef2f2'  : gapPct > 10 ? '#fffbeb'  : 'transparent';
+      brCell = `<td style="padding:5px 8px;text-align:center;background:${bg}">
+        <div style="font-size:10px;color:#9ca3af">${elapsedPct}% elapsed</div>
+        <div style="font-size:11px;font-weight:600;color:${color}">${donePct}% done</div>
+        ${gapPct > 10 ? `<div style="font-size:9px;color:${color};opacity:.8">▲ ${gapPct}% behind</div>` : ''}
+      </td>`;
+    }
+
+    return `<tr style="border-bottom:1px solid #f3f4f6">
+      <td style="width:4px;padding:0;background:${team.color}"></td>
+      <td style="padding:5px 8px;white-space:nowrap"><span style="font-size:9px;font-family:monospace;color:${team.color};background:${team.color}20;padding:1px 5px;border-radius:3px">${esc(team.key)}</span></td>
+      <td style="padding:6px 8px;font-size:12px;color:#111827;font-weight:500">${esc(project.name)}</td>
+      <td style="padding:5px 8px;white-space:nowrap"><span style="padding:2px 8px;border-radius:10px;font-size:10px;${pillStyle}">${esc(status)}</span></td>
+      ${brCell}
+      <td style="padding:6px 8px;font-size:11px;color:${overdue?'#dc2626':'#374151'};white-space:nowrap">${esc(formatDate(project.targetDate))}</td>
+      <td style="padding:6px 8px;font-size:11px;color:${project.lead?'#374151':'#d1d5db'};font-style:${project.lead?'normal':'italic'}">${esc(project.lead ? formatLeadName(project.lead.name) : 'No lead')}</td>
+      <td style="padding:6px 8px;font-size:11px;color:#374151">${esc(healthText(project))}</td>
+      <td style="padding:6px 8px;font-size:10px;color:#6b7280;max-width:200px">${esc(upcomingMilestones(project))}</td>
+    </tr>`;
   }).join('');
+
+  const flatTableHtml = flat.length === 0 ? '' : `
+    ${dqHtml}
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#f3f4f6">
+        <th style="width:4px;padding:0"></th>
+        ${['Team','Project','Status','Burn Rate','Target Date','Lead','PM Health','Milestones (90d)'].map(h => `<th style="padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:left;white-space:nowrap">${esc(h)}</th>`).join('')}
+      </tr></thead>
+      <tbody>${flatRows}</tbody>
+    </table>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -758,8 +910,8 @@ ${topRisksHtml}
 <!-- Page 2: Project Detail -->
 <div style="margin-top:40px;page-break-before:always;break-before:page">
   <h2 style="font-size:16px;font-weight:700;color:#111827;margin:0 0 4px">Project Detail</h2>
-  <p style="font-size:11px;color:#6b7280;margin:0 0 20px">All active projects · Source: Linear</p>
-  ${teamSections}
+  <p style="font-size:11px;color:#6b7280;margin:0 0 12px">Active projects sorted by severity · Source: Linear</p>
+  ${flatTableHtml}
 </div>
 
 ${buildGanttHTMLSection(ganttTeams, quarterStart, quarterEnd, quarterLabel, esc)}
@@ -913,8 +1065,8 @@ export default function PrintPage() {
             {/* Page 2: Project Detail */}
             <div className="page-card print-page">
               <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Project Detail</h2>
-              <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 20 }}>All active projects · Source: Linear</p>
-              {teams.map(team => <TeamSection key={team.id} team={team} />)}
+              <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>Active projects sorted by severity · Source: Linear</p>
+              <ProjectDetailSection teams={teams} />
             </div>
 
             {/* Page break indicator */}
