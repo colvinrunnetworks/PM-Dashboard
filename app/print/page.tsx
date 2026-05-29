@@ -1167,7 +1167,7 @@ function DashHealthTiles({ hygiene }: { hygiene: TeamHygiene[] }) {
   const tiles = [
     { label: 'Lead Coverage',   desc: 'Projects with a named DRI',                n: totals.withLead,        color: '#60a5fa', placeholder: false },
     { label: 'Target Dates',    desc: 'Projects with a delivery deadline',         n: totals.withTargetDate,  color: '#4ade80', placeholder: false },
-    { label: 'PM Health',       desc: 'Not yet enabled — planned for future use',  n: 0,                      color: '#a78bfa', placeholder: true  },
+    { label: 'PM Health',       desc: 'How recently each project was reviewed by a PM. Projects without regular check-ins are harder to course-correct — unreported blockers accumulate silently. Planned feature.',  n: 0,  color: '#a78bfa', placeholder: true  },
     { label: 'Has Description', desc: 'Scope or objective documented',             n: totals.withDescription, color: '#fb923c', placeholder: false },
     { label: 'Priority Set',    desc: 'Urgent / High / Normal assigned',           n: totals.withPriority,    color: '#f87171', placeholder: false },
   ];
@@ -1221,10 +1221,9 @@ function DashTeamScorecard({ hygiene }: { hygiene: TeamHygiene[] }) {
   }
 
   const cols = [
-    { key: 'lead',        label: 'Lead'         },
-    { key: 'target',      label: 'Target Date'  },
-    { key: 'start',       label: 'Start Date'   },
-    { key: 'health',      label: 'PM Health',  placeholder: true },
+    { key: 'lead',        label: 'Lead'        },
+    { key: 'target',      label: 'Target Date' },
+    { key: 'start',       label: 'Start Date'  },
     { key: 'desc',        label: 'Description' },
     { key: 'priority',    label: 'Priority'    },
   ];
@@ -1237,8 +1236,8 @@ function DashTeamScorecard({ hygiene }: { hygiene: TeamHygiene[] }) {
             <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Team</th>
             <th className="px-3 py-2 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Active</th>
             {cols.map(c => (
-              <th key={c.key} className={`px-3 py-2 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap ${c.placeholder ? 'text-slate-700 opacity-40' : 'text-slate-500'}`}>
-                {c.placeholder ? `${c.label} (Planned)` : c.label}
+              <th key={c.key} className="px-3 py-2 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap text-slate-500">
+                {c.label}
               </th>
             ))}
             <th className="px-3 py-2 text-center text-xs font-bold uppercase tracking-wider text-red-700">Stuck</th>
@@ -1258,7 +1257,6 @@ function DashTeamScorecard({ hygiene }: { hygiene: TeamHygiene[] }) {
               <PctCell n={h.withLead}        total={h.active} />
               <PctCell n={h.withTargetDate}  total={h.active} />
               <PctCell n={h.withStartDate}   total={h.active} />
-              <PctCell n={0} total={h.active} placeholder />
               <PctCell n={h.withDescription} total={h.active} />
               <PctCell n={h.withPriority}    total={h.active} warnAt={40} badAt={20} />
               <td className="px-3 py-2 text-center">
@@ -1274,7 +1272,6 @@ function DashTeamScorecard({ hygiene }: { hygiene: TeamHygiene[] }) {
             <PctCell n={totals.withLead}        total={totals.active} />
             <PctCell n={totals.withTargetDate}  total={totals.active} />
             <PctCell n={totals.withStartDate}   total={totals.active} />
-            <PctCell n={0} total={totals.active} placeholder />
             <PctCell n={totals.withDescription} total={totals.active} />
             <PctCell n={totals.withPriority}    total={totals.active} warnAt={40} badAt={20} />
             <td className="px-3 py-2 text-center">
@@ -1287,6 +1284,9 @@ function DashTeamScorecard({ hygiene }: { hygiene: TeamHygiene[] }) {
       </table>
       <p className="mt-2 text-xs text-slate-600 px-1">
         <span className="text-green-500 font-semibold">Green ≥80%</span> · <span className="text-amber-500 font-semibold">Amber ≥60%</span> · <span className="text-orange-500 font-semibold">Orange ≥40%</span> · <span className="text-red-500 font-semibold">Red &lt;40%</span> · Stuck = Planned/On Hold with start date in the past
+      </p>
+      <p className="mt-2 text-xs text-slate-700 px-1">
+        <span className="font-semibold text-slate-600">PM Health (planned)</span> — When teams post regular project updates in Linear, this column will show check-in freshness per team. Projects without recent PM updates are harder to course-correct early and may have unreported blockers.
       </p>
     </div>
   );
@@ -1380,6 +1380,12 @@ function DashTopRisks({ items }: { items: RiskItem[] }) {
   const top = items.slice(0, 10);
   if (top.length === 0) return <p className="text-sm text-slate-600 py-2">No flagged projects.</p>;
   return (
+    <div>
+      <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+        {items.length} project{items.length !== 1 ? 's' : ''} across the portfolio have at least one active risk flag.
+        Ranked by severity: <span className="text-red-400 font-semibold">Overdue</span> → <span className="text-amber-400 font-semibold">At Risk</span> → <span className="text-yellow-400 font-semibold">Due Soon</span> → <span className="text-purple-400 font-semibold">Stalled</span> → On Hold → No Deadline / No Lead / Backlog Issues.
+        Within each tier, sorted by days remaining.{items.length > 10 && ` Showing top 10 of ${items.length}.`}
+      </p>
     <div className="divide-y divide-slate-700/30">
       {top.map((item, i) => {
         const isOv = item.flags.includes('Overdue');
@@ -1400,6 +1406,7 @@ function DashTopRisks({ items }: { items: RiskItem[] }) {
           </div>
         );
       })}
+    </div>
     </div>
   );
 }
@@ -1437,10 +1444,10 @@ function DashProjectList({ flat }: { flat: FlatProject[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-700/50">
+          <tr className="border-b border-slate-700/50 bg-slate-900/40">
             <th className="w-1 p-0" />
             {['Team', 'Project', 'Status', 'Burn Rate', 'Target Date', 'Lead', 'Milestones (90d)'].map(h => (
-              <th key={h} className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">{h}</th>
+              <th key={h} className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">{h}</th>
             ))}
           </tr>
         </thead>
