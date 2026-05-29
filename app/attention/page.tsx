@@ -55,9 +55,13 @@ interface FlaggedProject {
 
 function collectFlagged(teams: Team[], backlogMap: BacklogMap = {}): FlaggedProject[] {
   const result: FlaggedProject[] = [];
+  const seen = new Set<string>();
 
   for (const team of teams) {
     for (const project of team.projects.nodes) {
+      if (seen.has(project.id)) continue;
+      seen.add(project.id);
+
       const isActive = project.state !== 'completed' && project.state !== 'cancelled';
       const flags: FlagKey[] = [];
       const days = project.targetDate ? daysUntil(project.targetDate) : null;
