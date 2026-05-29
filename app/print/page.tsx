@@ -155,19 +155,27 @@ function GanttSection({ teams, quarterStart, quarterEnd, quarterLabel }: {
               const barWidth = hasBar ? Math.max(0.3, barRight - barLeft) : 0;
               const barVisible = hasBar && barRight > 0 && barLeft < 100;
               return (
-                <div key={p.id} style={{ display: 'flex', borderBottom: '1px solid #f3f4f6', minHeight: 22 }}>
+                <div key={p.id} style={{ display: 'flex', borderBottom: '1px solid #f3f4f6', minHeight: 38 }}>
                   <div style={{ width: GANTT_NAME_W, minWidth: GANTT_NAME_W, padding: '3px 8px', borderRight: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
                     <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0, display: 'inline-block' }} title={gStateLabel(p.state)} />
                     <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.name}>{p.name}</span>
                   </div>
-                  <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <div style={{ flex: 1, position: 'relative' }}>
                     {todayPct !== null && <div style={{ position: 'absolute', top: 0, bottom: 0, width: 1, background: '#ef444418', left: `${todayPct}%` }} />}
                     {barVisible && (
-                      <div style={{ position: 'absolute', left: `${barLeft}%`, width: `${barWidth}%`, height: 12, background: color, borderRadius: 2, opacity: 0.8 }} title={`${p.name} · ${gFmtDate(p.startDate)} → ${gFmtDate(p.targetDate)}`}>
-                        <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'white', opacity: 0.35, width: `${Math.round(p.progress * 100)}%` }} />
-                      </div>
+                      <>
+                        <div style={{ position: 'absolute', left: `${barLeft}%`, width: `${barWidth}%`, height: 12, top: 6, background: color, borderRadius: 2, opacity: 0.8 }} title={`${p.name} · ${gFmtDate(p.startDate)} → ${gFmtDate(p.targetDate)}`}>
+                          <div style={{ position: 'absolute', inset: 0, borderRadius: 2, background: 'white', opacity: 0.35, width: `${Math.round(p.progress * 100)}%` }} />
+                        </div>
+                        <span style={{ position: 'absolute', left: `${barLeft}%`, top: 21, fontSize: 9, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', pointerEvents: 'none' }}>
+                          {gFmtDate(p.startDate)}
+                        </span>
+                        <span style={{ position: 'absolute', left: `${barRight}%`, top: 21, fontSize: 9, fontWeight: 700, color: '#111827', whiteSpace: 'nowrap', pointerEvents: 'none', transform: 'translateX(-100%)' }}>
+                          {gFmtDate(p.targetDate)}
+                        </span>
+                      </>
                     )}
-                    {!hasBar && <span style={{ fontSize: 9, color: '#d1d5db', fontStyle: 'italic', paddingLeft: 8 }}>No dates</span>}
+                    {!hasBar && <span style={{ fontSize: 9, color: '#d1d5db', fontStyle: 'italic', paddingLeft: 8, position: 'absolute', top: 10 }}>No dates</span>}
                   </div>
                 </div>
               );
@@ -679,15 +687,19 @@ function buildGanttHTMLSection(
       const barRight  = hasBar ? Math.min(100, pct(e!)) : 0;
       const barWidth  = hasBar ? Math.max(0.3, barRight - barLeft) : 0;
       const barVisible = hasBar && barRight > 0 && barLeft < 100;
-      rows += `<div style="display:flex;border-bottom:1px solid #f3f4f6;min-height:22px;">
+      rows += `<div style="display:flex;border-bottom:1px solid #f3f4f6;min-height:38px;">
         <div style="width:220px;min-width:220px;padding:3px 8px;border-right:1px solid #e5e7eb;display:flex;align-items:center;gap:5px;overflow:hidden;">
           <span style="width:6px;height:6px;border-radius:50%;background:${color};display:inline-block;flex-shrink:0"></span>
           <span style="color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${esc(p.name)}</span>
         </div>
-        <div style="flex:1;position:relative;display:flex;align-items:center;">
+        <div style="flex:1;position:relative;">
           ${todayPct !== null ? todayLine(todayPct) : ''}
-          ${barVisible ? `<div style="position:absolute;left:${barLeft.toFixed(2)}%;width:${barWidth.toFixed(2)}%;height:12px;background:${color};border-radius:2px;opacity:.8;"><div style="position:absolute;inset:0;border-radius:2px;background:white;opacity:.35;width:${Math.round(p.progress*100)}%"></div></div>` : ''}
-          ${!hasBar ? `<span style="font-size:9px;color:#d1d5db;font-style:italic;padding-left:8px">No dates</span>` : ''}
+          ${barVisible
+            ? `<div style="position:absolute;left:${barLeft.toFixed(2)}%;width:${barWidth.toFixed(2)}%;height:12px;top:6px;background:${color};border-radius:2px;opacity:.8;"><div style="position:absolute;inset:0;border-radius:2px;background:white;opacity:.35;width:${Math.round(p.progress*100)}%"></div></div>
+               <span style="position:absolute;left:${barLeft.toFixed(2)}%;top:21px;font-size:9px;font-weight:700;color:#111827;white-space:nowrap">${esc(gFmtDate(p.startDate))}</span>
+               <span style="position:absolute;left:${barRight.toFixed(2)}%;top:21px;font-size:9px;font-weight:700;color:#111827;white-space:nowrap;transform:translateX(-100%)">${esc(gFmtDate(p.targetDate))}</span>`
+            : ''}
+          ${!hasBar ? `<span style="font-size:9px;color:#d1d5db;font-style:italic;padding-left:8px;position:absolute;top:10px">No dates</span>` : ''}
         </div>
       </div>`;
     }
