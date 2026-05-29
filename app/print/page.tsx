@@ -317,6 +317,18 @@ function buildNarrative(teams: Team[], riskItems: RiskItem[], totalBacklog: numb
   return parts.join('  ');
 }
 
+const RISK_FLAG_DESC: Record<string, string> = {
+  'Overdue':        'Target date passed, work incomplete',
+  'At Risk':        'PM flagged as at risk or off track',
+  'Due Soon':       'Deadline within 30 days, <50% done',
+  'Stalled':        'In Progress but no work logged yet',
+  'On Hold':        'Paused — blocked or deprioritized',
+  'No Deadline':    'Active project missing a target date',
+  'No Lead':        'No DRI or PM assigned',
+  'Health Not Set': 'PM has not submitted a status check-in',
+  'Backlog Issues': 'Unprioritized issues need triage',
+};
+
 function RiskSummaryTiles({ items }: { items: RiskItem[] }) {
   const counts = riskCounts(items);
   return (
@@ -327,6 +339,7 @@ function RiskSummaryTiles({ items }: { items: RiskItem[] }) {
           <div key={key} style={{ textAlign: 'center', padding: '10px 6px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
             <div style={{ fontSize: 26, fontWeight: 700, color: n > 0 ? color : '#d1d5db', lineHeight: 1 }}>{n}</div>
             <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4, lineHeight: 1.2 }}>{key}</div>
+            <div style={{ fontSize: 8, color: '#9ca3af', marginTop: 3, lineHeight: 1.3 }}>{RISK_FLAG_DESC[key]}</div>
           </div>
         );
       })}
