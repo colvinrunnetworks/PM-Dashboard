@@ -588,6 +588,8 @@ export default function GanttPage() {
   const [error,    setError]      = useState<string | null>(null);
   const [milestoneMap, setMilestoneMap] = useState<Map<string, GanttMilestone[]>>(new Map());
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
+  const ALL_STATES = useMemo(() => new Set(['started', 'planned', 'paused', 'completed']), []);
+  const [stateFilter, setStateFilter] = useState<Set<string>>(new Set(['started', 'planned', 'paused', 'completed']));
 
   const load = useCallback(async (teamId: string | null) => {
     setLoading(true);
@@ -636,8 +638,25 @@ export default function GanttPage() {
     load(id);
   }
 
+  function toggleState(s: string) {
+    setStateFilter(prev => {
+      const next = new Set(prev);
+      if (next.has(s)) { next.delete(s); } else { next.add(s); }
+      return next;
+    });
+  }
+
   // Apply SDEAT use-case grouping when the SDE team is selected
-  const teams = useMemo(() => applyUseCaseGrouping(rawTeams), [rawTeams]);
+  const groupedTeams = useMemo(() => applyUseCaseGrouping(rawTeams), [rawTeams]);
+
+  // Apply state filter
+  const teams = useMemo(() => {
+    if (stateFilter.size === ALL_STATES.size) return groupedTeams;
+    return groupedTeams.map(t => ({
+      ...t,
+      projects: { nodes: t.projects.nodes.filter(p => stateFilter.has(p.state)) },
+    }));
+  }, [groupedTeams, stateFilter, ALL_STATES]);
 
   // Auto-compute date range from all raw project dates
   const autoRange = useMemo(() => {
@@ -662,8 +681,10 @@ export default function GanttPage() {
   const dateSlug = new Date().toISOString().slice(0, 10);
   const nameSlug = selectionLabel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-  const totalProjects = rawTeams.reduce((n, t) => n + t.projects.nodes.length, 0);
-  const withDates     = rawTeams.flatMap(t => t.projects.nodes).filter(p => p.startDate && p.targetDate).length;
+  const totalProjects   = rawTeams.reduce((n, t) => n + t.projects.nodes.length, 0);
+  const filteredCount   = teams.reduce((n, t) => n + t.projects.nodes.length, 0);
+  const withDates       = teams.flatMap(t => t.projects.nodes).filter(p => p.startDate && p.targetDate).length;
+  const stateFiltered   = stateFilter.size < ALL_STATES.size;
 
   const rangeLabel = rangeOverride
     ? (() => {
@@ -720,7 +741,9 @@ export default function GanttPage() {
             Gantt
           </h1>
           <p className="text-sm text-slate-500">
-            {loading ? 'Loading…' : `${selectionLabel} · ${totalProjects} projects · ${withDates} with dates`}
+            {loading ? 'Loading…' : stateFiltered
+              ? `${selectionLabel} · ${filteredCount} of ${totalProjects} projects · ${withDates} with dates`
+              : `${selectionLabel} · ${totalProjects} projects · ${withDates} with dates`}
           </p>
         </div>
         <div className="flex items-center gap-2 mt-2 sm:mt-0 flex-wrap">
@@ -781,6 +804,45 @@ export default function GanttPage() {
           ))}
         </div>
       )}
+
+      {/* State filter */}
+      <div className="gantt-no-print flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-slate-500 shrink-0">Status:</span>
+        {([
+          { id: 'started',   label: 'In Progress' },
+          { id: 'planned',   label: 'Planned' },
+          { id: 'paused',    label: 'On Hold' },
+          { id: 'completed', label: 'Completed' },
+        ] as { id: string; label: string }[]).map(({ id, label }) => {
+          const active = stateFilter.has(id);
+          const color  = STATE_COLOR[id];
+          return (
+            <button
+              key={id}
+              onClick={() => toggleState(id)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium transition-colors',
+                active
+                  ? 'border-transparent text-white'
+                  : 'border-slate-700 text-slate-500 bg-transparent hover:border-slate-600 hover:text-slate-400'
+              )}
+              style={active ? { backgroundColor: `${color}33`, borderColor: `${color}66`, color } : {}}
+            >
+              <span className="h-2 w-2 rounded-sm shrink-0" style={{ backgroundColor: active ? color : '#475569' }} />
+              {label}
+            </button>
+          );
+        })}
+        {stateFilter.size < ALL_STATES.size && (
+          <button
+            onClick={() => setStateFilter(new Set(ALL_STATES))}
+            className="flex items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <X className="h-3 w-3" />
+            Show all
+          </button>
+        )}
+      </div>
 
       {/* Error */}
       {error && (
