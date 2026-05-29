@@ -715,17 +715,18 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
       {/* Overall score bar */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         {[
-          { label: 'Lead Coverage',    n: totals.withLead,        color: '#2563eb' },
-          { label: 'Target Dates',     n: totals.withTargetDate,  color: '#16a34a' },
-          { label: 'PM Health Set',    n: totals.withHealth,      color: '#7c3aed' },
-          { label: 'Has Description',  n: totals.withDescription, color: '#d97706' },
-          { label: 'Priority Set',     n: totals.withPriority,    color: '#dc2626' },
-        ].map(({ label, n, color }) => {
+          { label: 'Lead Coverage',    desc: 'Projects with a named DRI assigned',           n: totals.withLead,        color: '#2563eb' },
+          { label: 'Target Dates',     desc: 'Projects with a delivery deadline set',         n: totals.withTargetDate,  color: '#16a34a' },
+          { label: 'PM Health Set',    desc: 'Projects with an active health status update',  n: totals.withHealth,      color: '#7c3aed' },
+          { label: 'Has Description',  desc: 'Projects with scope or objective documented',   n: totals.withDescription, color: '#d97706' },
+          { label: 'Priority Set',     desc: 'Projects with Urgent / High / Normal priority', n: totals.withPriority,    color: '#dc2626' },
+        ].map(({ label, desc, n, color }) => {
           const p = pct(n, totals.active);
           return (
             <div key={label} style={{ flex: 1, minWidth: 100, padding: '10px 14px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
               <div style={{ fontSize: 22, fontWeight: 700, color: p >= 80 ? '#16a34a' : p >= 60 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{p}%</div>
               <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>{label}</div>
+              <div style={{ fontSize: 9, color: '#9ca3af', marginTop: 3, lineHeight: 1.3 }}>{desc}</div>
               <div style={{ marginTop: 6, height: 4, borderRadius: 2, backgroundColor: '#e5e7eb' }}>
                 <div style={{ height: '100%', borderRadius: 2, width: `${p}%`, backgroundColor: color }} />
               </div>
