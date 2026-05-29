@@ -1412,27 +1412,60 @@ function DashTopRisks({ items }: { items: RiskItem[] }) {
 }
 
 function DashDataQuality({ flat }: { flat: FlatProject[] }) {
-  const missingHealth   = flat.filter(({ project: p }) => p.health === null).length;
   const missingDeadline = flat.filter(({ project: p }) => !p.targetDate).length;
   const missingLead     = flat.filter(({ project: p }) => !p.lead).length;
   const stalled         = flat.filter(({ project: p }) => p.state === 'started' && p.progress === 0 && p.startDate && daysUntil(p.startDate) < 0).length;
-  const items = [
-    { label: 'missing deadline',      count: missingDeadline, cls: 'text-amber-400' },
-    { label: 'missing lead',          count: missingLead,     cls: 'text-amber-400' },
-    { label: 'stalled (0% progress)', count: stalled,         cls: 'text-purple-400' },
-    { label: 'missing health status', count: missingHealth,   cls: 'text-slate-500'  },
-  ].filter(i => i.count > 0);
 
-  if (items.length === 0) return (
-    <div className="flex items-center gap-2 rounded-lg border border-green-800 bg-green-950/30 px-4 py-3 mb-4 text-sm text-green-400">
-      <span>✓</span><span>All {flat.length} active projects have complete data.</span>
-    </div>
-  );
+  const tiles = [
+    {
+      label: 'Missing Deadline',
+      desc: 'Active project without a target delivery date set',
+      count: missingDeadline,
+      color: '#fbbf24',
+      bg: 'rgba(245,158,11,0.08)',
+      placeholder: false,
+    },
+    {
+      label: 'Missing Lead',
+      desc: 'No DRI or PM assigned to own the project outcome',
+      count: missingLead,
+      color: '#fbbf24',
+      bg: 'rgba(245,158,11,0.08)',
+      placeholder: false,
+    },
+    {
+      label: 'Stalled',
+      desc: 'In Progress but 0% work logged since the start date',
+      count: stalled,
+      color: '#c084fc',
+      bg: 'rgba(168,85,247,0.08)',
+      placeholder: false,
+    },
+    {
+      label: 'Health Status',
+      desc: 'PM check-ins not yet enabled — projects missing health updates will appear here once tracking is active',
+      count: 0,
+      color: '#475569',
+      bg: 'transparent',
+      placeholder: true,
+    },
+  ];
+
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-amber-800/50 bg-amber-950/20 px-4 py-3 mb-4">
-      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Data Quality</span>
-      {items.map(({ label, count, cls }) => (
-        <span key={label} className={`text-sm ${cls}`}><strong>{count}</strong> {label}</span>
+    <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+      {tiles.map(({ label, desc, count, color, bg, placeholder }) => (
+        <div
+          key={label}
+          className="rounded-lg border border-slate-700/50 p-3 text-center"
+          style={{ backgroundColor: count > 0 && !placeholder ? bg : 'transparent', opacity: placeholder ? 0.35 : 1 }}
+        >
+          {placeholder
+            ? <div className="text-xs font-semibold text-slate-600 leading-none mb-1">—</div>
+            : <div className="text-2xl font-bold leading-none" style={{ color: count > 0 ? color : '#334155' }}>{count}</div>
+          }
+          <div className="mt-1.5 text-xs font-bold uppercase tracking-wider leading-tight" style={{ color: placeholder ? '#334155' : '#64748b' }}>{label}</div>
+          <div className="mt-1 text-xs leading-snug text-slate-600">{desc}</div>
+        </div>
       ))}
     </div>
   );
