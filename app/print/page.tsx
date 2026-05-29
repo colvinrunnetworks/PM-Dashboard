@@ -275,6 +275,26 @@ function FlagPill({ flag }: { flag: string }) {
   );
 }
 
+// ── Risk flag definitions for print ──────────────────────────────────────────
+
+const RISK_FLAGS: { key: string; color: string }[] = [
+  { key: 'Overdue',        color: '#dc2626' },
+  { key: 'At Risk',        color: '#d97706' },
+  { key: 'Due Soon',       color: '#ca8a04' },
+  { key: 'Stalled',        color: '#7c3aed' },
+  { key: 'On Hold',        color: '#2563eb' },
+  { key: 'No Deadline',    color: '#6b7280' },
+  { key: 'No Lead',        color: '#6b7280' },
+  { key: 'Health Not Set', color: '#6b7280' },
+  { key: 'Backlog Issues', color: '#b45309' },
+];
+
+function riskCounts(items: RiskItem[]): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const item of items) for (const f of item.flags) map[f] = (map[f] ?? 0) + 1;
+  return map;
+}
+
 // ── Page 1: Executive Summary ─────────────────────────────────────────────────
 
 function buildNarrative(teams: Team[], riskItems: RiskItem[], totalBacklog: number): string {
@@ -289,53 +309,56 @@ function buildNarrative(teams: Team[], riskItems: RiskItem[], totalBacklog: numb
   return parts.join('  ');
 }
 
-function StatTile({ label, value, color }: { label: string; value: number; color: string }) {
+function RiskSummaryTiles({ items }: { items: RiskItem[] }) {
+  const counts = riskCounts(items);
   return (
-    <div style={{ flex: 1, textAlign: 'center', padding: '12px 8px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
-      <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 10, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>{label}</div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(9, 1fr)', gap: 8, marginBottom: 4 }}>
+      {RISK_FLAGS.map(({ key, color }) => {
+        const n = counts[key] ?? 0;
+        return (
+          <div key={key} style={{ textAlign: 'center', padding: '10px 6px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
+            <div style={{ fontSize: 26, fontWeight: 700, color: n > 0 ? color : '#d1d5db', lineHeight: 1 }}>{n}</div>
+            <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4, lineHeight: 1.2 }}>{key}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function TeamHealthMatrix({ teams, riskItems }: { teams: Team[]; riskItems: RiskItem[] }) {
+function TeamRiskMatrix({ teams, riskItems }: { teams: Team[]; riskItems: RiskItem[] }) {
   const activeTeams = teams.filter(t => t.projects.nodes.some(p => p.state !== 'completed' && p.state !== 'cancelled'));
   if (activeTeams.length === 0) return null;
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h3 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', marginBottom: 8 }}>Team Health</h3>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <h3 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', marginBottom: 8 }}>Risk by Team</h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
         <thead>
           <tr style={{ backgroundColor: '#f3f4f6' }}>
             <th style={{ padding: '5px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af' }}>Team</th>
-            {['Active', 'On Track', 'At Risk', 'Overdue', 'On Hold', 'Backlog Issues'].map(h => (
-              <th key={h} style={{ padding: '5px 8px', textAlign: 'center', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af', whiteSpace: 'nowrap' }}>{h}</th>
+            {RISK_FLAGS.map(({ key }) => (
+              <th key={key} style={{ padding: '5px 6px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9ca3af', whiteSpace: 'nowrap' }}>{key}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {activeTeams.map(team => {
-            const projs = team.projects.nodes;
-            const active    = projs.filter(p => p.state !== 'completed' && p.state !== 'cancelled').length;
-            const onTrack   = projs.filter(p => p.state === 'started' && !isOverdue(p) && !isAtRisk(p)).length;
-            const atRisk    = projs.filter(p => isAtRisk(p)).length;
-            const overdue   = projs.filter(p => isOverdue(p)).length;
-            const onHold    = projs.filter(p => p.state === 'paused').length;
-            const backlog   = riskItems.filter(r => r.teamKey === team.key).reduce((s, r) => s + r.backlogCount, 0);
+            const teamItems = riskItems.filter(r => r.teamKey === team.key);
+            const counts    = riskCounts(teamItems);
             return (
               <tr key={team.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: team.color, display: 'inline-block', flexShrink: 0 }} />
-                  <span style={{ fontWeight: 600, color: '#111827' }}>{team.name}</span>
-                  <span style={{ fontSize: 9, fontFamily: 'monospace', color: team.color, backgroundColor: `${team.color}20`, padding: '1px 5px', borderRadius: 3 }}>{team.key}</span>
+                <td style={{ padding: '6px 10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: team.color, display: 'inline-block', flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: '#111827', fontSize: 12 }}>{team.name}</span>
+                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: team.color, backgroundColor: `${team.color}20`, padding: '1px 5px', borderRadius: 3 }}>{team.key}</span>
+                  </div>
                 </td>
-                <Cell value={active}  neutral />
-                <Cell value={onTrack} good={onTrack > 0} />
-                <Cell value={atRisk}  warn={atRisk > 0} />
-                <Cell value={overdue} bad={overdue > 0} />
-                <Cell value={onHold}  neutral />
-                <Cell value={backlog} warn={backlog > 10} bad={backlog > 25} />
+                {RISK_FLAGS.map(({ key, color }) => {
+                  const n = counts[key] ?? 0;
+                  return <Cell key={key} value={n} bad={n > 0 && (key === 'Overdue')} warn={n > 0 && (key === 'At Risk' || key === 'Due Soon' || key === 'Stalled' || key === 'Backlog Issues')} neutral={n === 0 || key === 'On Hold' || key === 'No Deadline' || key === 'No Lead' || key === 'Health Not Set'} color={n > 0 ? color : undefined} />;
+                })}
               </tr>
             );
           })}
@@ -345,9 +368,9 @@ function TeamHealthMatrix({ teams, riskItems }: { teams: Team[]; riskItems: Risk
   );
 }
 
-function Cell({ value, good, warn, bad, neutral }: { value: number; good?: boolean; warn?: boolean; bad?: boolean; neutral?: boolean }) {
-  const color = bad ? '#dc2626' : warn ? '#d97706' : good ? '#16a34a' : '#374151';
-  const bg    = bad ? '#fef2f2' : warn ? '#fffbeb' : good && value > 0 ? '#f0fdf4' : 'transparent';
+function Cell({ value, good, warn, bad, neutral, color: colorOverride }: { value: number; good?: boolean; warn?: boolean; bad?: boolean; neutral?: boolean; color?: string }) {
+  const color = colorOverride ?? (bad ? '#dc2626' : warn ? '#d97706' : good ? '#16a34a' : '#374151');
+  const bg    = bad && value > 0 ? '#fef2f2' : warn && value > 0 ? '#fffbeb' : good && value > 0 ? '#f0fdf4' : 'transparent';
   return (
     <td style={{ padding: '6px 8px', textAlign: 'center', fontWeight: value > 0 && !neutral ? 600 : 400, color, backgroundColor: bg }}>
       {value > 0 ? value : <span style={{ color: '#d1d5db' }}>—</span>}
@@ -588,59 +611,50 @@ function generateReportHTML(
   // ── Page 1: Executive Summary ────────────────────────────────────────────────
   const narrative = buildNarrative(teams, riskItems, riskItems.reduce((s, i) => s + i.backlogCount, 0));
 
-  const statTilesHtml = [
-    { label: 'Active',    value: stats.active,    color: '#2563eb' },
-    { label: 'On Track',  value: stats.onTrack,   color: '#16a34a' },
-    { label: 'At Risk',   value: stats.atRisk,    color: '#d97706' },
-    { label: 'Overdue',   value: stats.overdue,   color: '#dc2626' },
-    { label: 'Completed', value: stats.completed, color: '#6b7280' },
-  ].map(({ label, value, color }) => `
-    <div style="flex:1;text-align:center;padding:12px 8px;border-radius:6px;border:1px solid #e5e7eb;background:#fafafa">
-      <div style="font-size:28px;font-weight:700;color:${color};line-height:1">${value}</div>
-      <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-top:4px">${label}</div>
-    </div>`).join('');
+  // Risk summary tiles (9 categories)
+  const counts = riskCounts(riskItems);
+  const statTilesHtml = `<div style="display:grid;grid-template-columns:repeat(9,1fr);gap:8px;margin-bottom:4px">
+    ${RISK_FLAGS.map(({ key, color }) => {
+      const n = counts[key] ?? 0;
+      return `<div style="text-align:center;padding:10px 6px;border-radius:6px;border:1px solid #e5e7eb;background:#fafafa">
+        <div style="font-size:26px;font-weight:700;color:${n > 0 ? color : '#d1d5db'};line-height:1">${n}</div>
+        <div style="font-size:9px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-top:4px;line-height:1.2">${esc(key)}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
 
-  // Team health matrix
+  // Team risk matrix (9 flag columns)
   const activeTeams = teams.filter(t => t.projects.nodes.some(p => p.state !== 'completed' && p.state !== 'cancelled'));
   const matrixRows = activeTeams.map(team => {
-    const projs   = team.projects.nodes;
-    const active  = projs.filter(p => p.state !== 'completed' && p.state !== 'cancelled').length;
-    const onTrack = projs.filter(p => p.state === 'started' && !isOverdue(p) && !isAtRisk(p)).length;
-    const atRisk  = projs.filter(p => isAtRisk(p)).length;
-    const overdue = projs.filter(p => isOverdue(p)).length;
-    const onHold  = projs.filter(p => p.state === 'paused').length;
-    const backlog = riskItems.filter(r => r.teamKey === team.key).reduce((s, r) => s + r.backlogCount, 0);
-
-    const cell = (v: number, badIf: boolean, warnIf: boolean, goodIf?: boolean) => {
-      const color = badIf ? '#dc2626' : warnIf ? '#d97706' : goodIf ? '#16a34a' : '#374151';
-      const bg    = badIf ? '#fef2f2' : warnIf ? '#fffbeb' : goodIf ? '#f0fdf4' : 'transparent';
-      return `<td style="padding:6px 8px;text-align:center;color:${color};background:${bg};font-weight:${v > 0 && (badIf||warnIf||goodIf) ? 600 : 400}">${v > 0 ? v : '<span style="color:#d1d5db">—</span>'}</td>`;
+    const teamItems = riskItems.filter(r => r.teamKey === team.key);
+    const tc = riskCounts(teamItems);
+    const cell = (key: string) => {
+      const n = tc[key] ?? 0;
+      const { color } = RISK_FLAGS.find(f => f.key === key)!;
+      const isBad  = n > 0 && key === 'Overdue';
+      const isWarn = n > 0 && ['At Risk','Due Soon','Stalled','Backlog Issues'].includes(key);
+      const bg = isBad ? '#fef2f2' : isWarn ? '#fffbeb' : 'transparent';
+      return `<td style="padding:5px 6px;text-align:center;color:${n > 0 ? color : '#d1d5db'};background:${bg};font-weight:${n > 0 ? 600 : 400}">${n > 0 ? n : '—'}</td>`;
     };
-
     return `<tr style="border-bottom:1px solid #f3f4f6">
       <td style="padding:6px 10px">
         <div style="display:flex;align-items:center;gap:7px">
           <span style="width:8px;height:8px;border-radius:50%;background:${team.color};display:inline-block;flex-shrink:0"></span>
-          <span style="font-weight:600;color:#111827">${esc(team.name)}</span>
+          <span style="font-weight:600;color:#111827;font-size:12px">${esc(team.name)}</span>
           <span style="font-size:9px;font-family:monospace;color:${team.color};background:${team.color}20;padding:1px 5px;border-radius:3px">${esc(team.key)}</span>
         </div>
       </td>
-      ${cell(active, false, false)}
-      ${cell(onTrack, false, false, onTrack > 0)}
-      ${cell(atRisk, false, atRisk > 0)}
-      ${cell(overdue, overdue > 0, false)}
-      ${cell(onHold, false, false)}
-      ${cell(backlog, backlog > 25, backlog > 10)}
+      ${RISK_FLAGS.map(({ key }) => cell(key)).join('')}
     </tr>`;
   }).join('');
 
   const matrixHtml = `
     <div style="margin-top:24px">
-      <h3 style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin:0 0 8px">Team Health</h3>
-      <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <h3 style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin:0 0 8px">Risk by Team</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
         <thead><tr style="background:#f3f4f6">
           <th style="padding:5px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9ca3af">Team</th>
-          ${['Active','On Track','At Risk','Overdue','On Hold','Backlog Issues'].map(h=>`<th style="padding:5px 8px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9ca3af;white-space:nowrap">${h}</th>`).join('')}
+          ${RISK_FLAGS.map(({ key }) => `<th style="padding:5px 6px;text-align:center;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#9ca3af;white-space:nowrap">${esc(key)}</th>`).join('')}
         </tr></thead>
         <tbody>${matrixRows}</tbody>
       </table>
@@ -884,16 +898,8 @@ export default function PrintPage() {
               <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: '0 0 20px', padding: '12px 16px', background: '#f8fafc', borderLeft: '3px solid #1e40af', borderRadius: '0 4px 4px 0' }}>
                 {buildNarrative(teams, riskItems, riskItems.reduce((s, i) => s + i.backlogCount, 0))}
               </p>
-              <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
-                {[
-                  { label: 'Active',    value: computeStats(teams).active,    color: '#2563eb' },
-                  { label: 'On Track',  value: computeStats(teams).onTrack,   color: '#16a34a' },
-                  { label: 'At Risk',   value: computeStats(teams).atRisk,    color: '#d97706' },
-                  { label: 'Overdue',   value: computeStats(teams).overdue,   color: '#dc2626' },
-                  { label: 'Completed', value: computeStats(teams).completed, color: '#6b7280' },
-                ].map(t => <StatTile key={t.label} {...t} />)}
-              </div>
-              <TeamHealthMatrix teams={teams} riskItems={riskItems} />
+              <RiskSummaryTiles items={riskItems} />
+              <TeamRiskMatrix teams={teams} riskItems={riskItems} />
               <TopRisks items={riskItems} />
             </>
           )}
