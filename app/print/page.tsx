@@ -1203,7 +1203,7 @@ export default function PrintPage() {
           }
         `}</style>
 
-        {/* Page 1: Executive Summary */}
+        {/* Page 1: Portfolio Health */}
         <div className="page-card print-page">
           <div style={{ marginBottom: 20, borderBottom: '2px solid #1e40af', paddingBottom: 12 }}>
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>COLVIN RUN NETWORKS</div>
@@ -1216,12 +1216,9 @@ export default function PrintPage() {
 
           {teams && !loading && (
             <>
-              <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: '0 0 20px', padding: '12px 16px', background: '#f8fafc', borderLeft: '3px solid #1e40af', borderRadius: '0 4px 4px 0' }}>
-                {buildNarrative(teams, riskItems, riskItems.reduce((s, i) => s + i.backlogCount, 0))}
-              </p>
-              <RiskSummaryTiles items={riskItems} />
-              <TeamRiskMatrix teams={teams} riskItems={riskItems} />
-              <TopRisks items={riskItems} />
+              <h2 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Portfolio Health</h2>
+              <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 16 }}>Data hygiene scorecard across all active projects · Source: Linear</p>
+              <PortfolioHealthSection teams={teams} />
             </>
           )}
         </div>
@@ -1229,9 +1226,23 @@ export default function PrintPage() {
         {teams && !loading && (
           <>
             {/* Page break indicator */}
-            <div className="no-print page-divider">Page 2 — Project Detail</div>
+            <div className="no-print page-divider">Page 2 — Executive Summary</div>
 
-            {/* Page 2: Project Detail */}
+            {/* Page 2: Executive Summary */}
+            <div className="page-card print-page">
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 12 }}>Executive Summary</h2>
+              <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: '0 0 20px', padding: '12px 16px', background: '#f8fafc', borderLeft: '3px solid #1e40af', borderRadius: '0 4px 4px 0' }}>
+                {buildNarrative(teams, riskItems, riskItems.reduce((s, i) => s + i.backlogCount, 0))}
+              </p>
+              <RiskSummaryTiles items={riskItems} />
+              <TeamRiskMatrix teams={teams} riskItems={riskItems} />
+              <TopRisks items={riskItems} />
+            </div>
+
+            {/* Page break indicator */}
+            <div className="no-print page-divider">Page 3 — Project Detail</div>
+
+            {/* Page 3: Project Detail */}
             <div className="page-card print-page">
               <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Project Detail</h2>
               <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>Active projects sorted by severity · Source: Linear</p>
@@ -1240,10 +1251,10 @@ export default function PrintPage() {
 
             {/* Page break indicator */}
             {ganttTeams.length > 0 && (
-              <div className="no-print page-divider">Page 3 — Program Schedule ({quarter.label})</div>
+              <div className="no-print page-divider">Page 4 — Program Schedule ({quarter.label})</div>
             )}
 
-            {/* Page 3: Gantt */}
+            {/* Page 4: Gantt */}
             {ganttTeams.length > 0 && (
               <div className="page-card">
                 <GanttSection
@@ -1254,16 +1265,6 @@ export default function PrintPage() {
                 />
               </div>
             )}
-
-            {/* Page break indicator */}
-            <div className="no-print page-divider">Page 4 — Portfolio Health</div>
-
-            {/* Page 4: Portfolio Health */}
-            <div className="page-card print-page">
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Portfolio Health</h2>
-              <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 20 }}>Data hygiene scorecard across all active projects · Source: Linear</p>
-              <PortfolioHealthSection teams={teams} />
-            </div>
 
             {/* Footer — screen only */}
             <div className="no-print" style={{ padding: '12px 0', fontSize: 10, color: '#94a3b8', textAlign: 'center' }}>
