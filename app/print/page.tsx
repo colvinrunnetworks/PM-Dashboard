@@ -1140,14 +1140,363 @@ function triggerDownload(content: string, mimeType: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// ── Dark dashboard components ─────────────────────────────────────────────────
+
+function DashSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-700/50 bg-slate-800/40">
+      <div className="border-b border-slate-700/40 px-4 py-3">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">{title}</h3>
+      </div>
+      <div className="p-4">{children}</div>
+    </div>
+  );
+}
+
+function DashHealthTiles({ hygiene }: { hygiene: TeamHygiene[] }) {
+  const totals = hygiene.reduce((acc, h) => ({
+    active: acc.active + h.active, withLead: acc.withLead + h.withLead,
+    withTargetDate: acc.withTargetDate + h.withTargetDate,
+    withHealth: acc.withHealth + h.withHealth,
+    withDescription: acc.withDescription + h.withDescription,
+    withPriority: acc.withPriority + h.withPriority,
+    withStartDate: acc.withStartDate + h.withStartDate,
+    stuckInBacklog: acc.stuckInBacklog + h.stuckInBacklog,
+  }), { active: 0, withLead: 0, withTargetDate: 0, withHealth: 0, withDescription: 0, withPriority: 0, withStartDate: 0, stuckInBacklog: 0 });
+
+  const tiles = [
+    { label: 'Lead Coverage',   desc: 'Projects with a named DRI',                n: totals.withLead,        color: '#60a5fa', placeholder: false },
+    { label: 'Target Dates',    desc: 'Projects with a delivery deadline',         n: totals.withTargetDate,  color: '#4ade80', placeholder: false },
+    { label: 'PM Health',       desc: 'Not yet enabled — planned for future use',  n: 0,                      color: '#a78bfa', placeholder: true  },
+    { label: 'Has Description', desc: 'Scope or objective documented',             n: totals.withDescription, color: '#fb923c', placeholder: false },
+    { label: 'Priority Set',    desc: 'Urgent / High / Normal assigned',           n: totals.withPriority,    color: '#f87171', placeholder: false },
+  ];
+
+  return (
+    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+      {tiles.map(({ label, desc, n, color, placeholder }) => {
+        const p = placeholder ? 0 : pct(n, totals.active);
+        const numColor = placeholder ? '#475569' : p >= 80 ? '#4ade80' : p >= 60 ? '#fbbf24' : '#f87171';
+        return (
+          <div key={label} className="rounded-lg border border-slate-700/50 bg-slate-800/40 p-4" style={{ opacity: placeholder ? 0.4 : 1 }}>
+            {placeholder
+              ? <div className="text-xs font-semibold text-slate-600 mb-1">— Planned —</div>
+              : <div className="text-2xl font-bold leading-none mb-1" style={{ color: numColor }}>{p}%</div>
+            }
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mt-1">{label}</div>
+            <div className="text-xs text-slate-600 mt-1 leading-snug">{desc}</div>
+            {!placeholder && (
+              <div className="mt-2 h-1 rounded-full bg-slate-700">
+                <div className="h-full rounded-full" style={{ width: `${p}%`, backgroundColor: color }} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DashTeamScorecard({ hygiene }: { hygiene: TeamHygiene[] }) {
+  const totals = hygiene.reduce((acc, h) => ({
+    active: acc.active + h.active, withLead: acc.withLead + h.withLead,
+    withTargetDate: acc.withTargetDate + h.withTargetDate,
+    withStartDate: acc.withStartDate + h.withStartDate,
+    withDescription: acc.withDescription + h.withDescription,
+    withPriority: acc.withPriority + h.withPriority,
+    stuckInBacklog: acc.stuckInBacklog + h.stuckInBacklog,
+    withHealth: 0,
+  }), { active: 0, withLead: 0, withTargetDate: 0, withStartDate: 0, withDescription: 0, withPriority: 0, stuckInBacklog: 0, withHealth: 0 });
+
+  function PctCell({ n, total, warnAt = 60, badAt = 40, placeholder = false }: { n: number; total: number; warnAt?: number; badAt?: number; placeholder?: boolean }) {
+    if (placeholder) return <td className="px-3 py-2 text-center text-slate-700 text-xs opacity-40">—</td>;
+    const p = pct(n, total);
+    const color = p >= 80 ? 'text-green-400' : p >= warnAt ? 'text-amber-400' : p >= badAt ? 'text-orange-400' : 'text-red-400';
+    return (
+      <td className="px-3 py-2 text-center">
+        <span className={`text-xs font-semibold ${color}`}>{p}%</span>
+        <span className="block text-xs text-slate-600">{n}/{total}</span>
+      </td>
+    );
+  }
+
+  const cols = [
+    { key: 'lead',        label: 'Lead'         },
+    { key: 'target',      label: 'Target Date'  },
+    { key: 'start',       label: 'Start Date'   },
+    { key: 'health',      label: 'PM Health',  placeholder: true },
+    { key: 'desc',        label: 'Description' },
+    { key: 'priority',    label: 'Priority'    },
+  ];
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-700/50">
+            <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Team</th>
+            <th className="px-3 py-2 text-center text-xs font-bold uppercase tracking-wider text-slate-500">Active</th>
+            {cols.map(c => (
+              <th key={c.key} className={`px-3 py-2 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap ${c.placeholder ? 'text-slate-700 opacity-40' : 'text-slate-500'}`}>
+                {c.placeholder ? `${c.label} (Planned)` : c.label}
+              </th>
+            ))}
+            <th className="px-3 py-2 text-center text-xs font-bold uppercase tracking-wider text-red-700">Stuck</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-700/30">
+          {hygiene.map(h => (
+            <tr key={h.team.id} className="hover:bg-slate-700/20 transition-colors">
+              <td className="px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: h.team.color }} />
+                  <span className="text-sm font-semibold text-slate-200">{h.team.name}</span>
+                  <span className="rounded px-1.5 py-0.5 text-xs font-mono" style={{ color: h.team.color, backgroundColor: `${h.team.color}20` }}>{h.team.key}</span>
+                </div>
+              </td>
+              <td className="px-3 py-2 text-center text-sm font-semibold text-slate-300">{h.active}</td>
+              <PctCell n={h.withLead}        total={h.active} />
+              <PctCell n={h.withTargetDate}  total={h.active} />
+              <PctCell n={h.withStartDate}   total={h.active} />
+              <PctCell n={0} total={h.active} placeholder />
+              <PctCell n={h.withDescription} total={h.active} />
+              <PctCell n={h.withPriority}    total={h.active} warnAt={40} badAt={20} />
+              <td className="px-3 py-2 text-center">
+                {h.stuckInBacklog > 0
+                  ? <span className="text-xs font-bold text-red-400">{h.stuckInBacklog}</span>
+                  : <span className="text-slate-700">—</span>}
+              </td>
+            </tr>
+          ))}
+          <tr className="border-t-2 border-slate-700 bg-slate-900/30">
+            <td className="px-3 py-2 text-sm font-bold text-slate-300">Portfolio Total</td>
+            <td className="px-3 py-2 text-center text-sm font-bold text-slate-200">{totals.active}</td>
+            <PctCell n={totals.withLead}        total={totals.active} />
+            <PctCell n={totals.withTargetDate}  total={totals.active} />
+            <PctCell n={totals.withStartDate}   total={totals.active} />
+            <PctCell n={0} total={totals.active} placeholder />
+            <PctCell n={totals.withDescription} total={totals.active} />
+            <PctCell n={totals.withPriority}    total={totals.active} warnAt={40} badAt={20} />
+            <td className="px-3 py-2 text-center">
+              {totals.stuckInBacklog > 0
+                ? <span className="text-xs font-bold text-red-400">{totals.stuckInBacklog}</span>
+                : <span className="text-slate-700">—</span>}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs text-slate-600 px-1">
+        <span className="text-green-500 font-semibold">Green ≥80%</span> · <span className="text-amber-500 font-semibold">Amber ≥60%</span> · <span className="text-orange-500 font-semibold">Orange ≥40%</span> · <span className="text-red-500 font-semibold">Red &lt;40%</span> · Stuck = Planned/On Hold with start date in the past
+      </p>
+    </div>
+  );
+}
+
+const DARK_FLAG_COLORS: Record<string, { text: string; bg: string }> = {
+  'Overdue':        { text: '#f87171', bg: 'rgba(239,68,68,0.1)'   },
+  'At Risk':        { text: '#fb923c', bg: 'rgba(249,115,22,0.1)'  },
+  'Due Soon':       { text: '#fbbf24', bg: 'rgba(245,158,11,0.1)'  },
+  'Stalled':        { text: '#c084fc', bg: 'rgba(168,85,247,0.1)'  },
+  'On Hold':        { text: '#60a5fa', bg: 'rgba(59,130,246,0.1)'  },
+  'No Deadline':    { text: '#94a3b8', bg: 'rgba(148,163,184,0.07)'},
+  'No Lead':        { text: '#94a3b8', bg: 'rgba(148,163,184,0.07)'},
+  'Health Not Set': { text: '#475569', bg: 'transparent'           },
+  'Backlog Issues': { text: '#fbbf24', bg: 'rgba(245,158,11,0.08)' },
+};
+
+function DashRiskTiles({ items }: { items: RiskItem[] }) {
+  const counts = riskCounts(items);
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(9, 1fr)' }}>
+      {RISK_FLAGS.map(({ key }) => {
+        const n = counts[key] ?? 0;
+        const isPlaceholder = key === 'Health Not Set';
+        const c = DARK_FLAG_COLORS[key] ?? { text: '#94a3b8', bg: 'transparent' };
+        return (
+          <div key={key} className="rounded-lg border border-slate-700/50 p-3 text-center" style={{ backgroundColor: n > 0 && !isPlaceholder ? c.bg : 'transparent', opacity: isPlaceholder ? 0.35 : 1 }}>
+            {isPlaceholder
+              ? <div className="text-xs font-semibold text-slate-600 leading-none mb-1">—</div>
+              : <div className="text-2xl font-bold leading-none" style={{ color: n > 0 ? c.text : '#334155' }}>{n}</div>
+            }
+            <div className="text-xs font-bold uppercase tracking-wider mt-1.5 leading-tight" style={{ color: isPlaceholder ? '#334155' : '#64748b' }}>{key}</div>
+            <div className="text-xs mt-1 leading-snug text-slate-600">{RISK_FLAG_DESC[key]}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DashRiskMatrix({ teams, riskItems }: { teams: Team[]; riskItems: RiskItem[] }) {
+  const activeTeams = teams.filter(t => t.projects.nodes.some(p => p.state !== 'completed' && p.state !== 'cancelled'));
+  if (activeTeams.length === 0) return null;
+  return (
+    <div className="overflow-x-auto mt-4">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-700/50">
+            <th className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider text-slate-500">Team</th>
+            {RISK_FLAGS.map(({ key }) => (
+              <th key={key} className={`px-2 py-2 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap ${key === 'Health Not Set' ? 'text-slate-700 opacity-40' : 'text-slate-500'}`}>
+                {key === 'Health Not Set' ? 'Health' : key}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-700/30">
+          {activeTeams.map(team => {
+            const tc = riskCounts(riskItems.filter(r => r.teamKey === team.key));
+            return (
+              <tr key={team.id} className="hover:bg-slate-700/20 transition-colors">
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: team.color }} />
+                    <span className="text-sm font-semibold text-slate-200">{team.name}</span>
+                    <span className="rounded px-1.5 py-0.5 text-xs font-mono" style={{ color: team.color, backgroundColor: `${team.color}20` }}>{team.key}</span>
+                  </div>
+                </td>
+                {RISK_FLAGS.map(({ key }) => {
+                  if (key === 'Health Not Set') return <td key={key} className="px-2 py-2 text-center text-slate-700 text-xs opacity-40">—</td>;
+                  const n = tc[key] ?? 0;
+                  const c = DARK_FLAG_COLORS[key];
+                  return (
+                    <td key={key} className="px-2 py-2 text-center">
+                      {n > 0
+                        ? <span className="text-xs font-bold" style={{ color: c.text }}>{n}</span>
+                        : <span className="text-slate-700 text-xs">—</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DashTopRisks({ items }: { items: RiskItem[] }) {
+  const top = items.slice(0, 10);
+  if (top.length === 0) return <p className="text-sm text-slate-600 py-2">No flagged projects.</p>;
+  return (
+    <div className="divide-y divide-slate-700/30">
+      {top.map((item, i) => {
+        const isOv = item.flags.includes('Overdue');
+        const isAR = item.flags.includes('At Risk');
+        const daysTxt = item.daysLeft === null ? '' : isOv ? `${Math.abs(item.daysLeft)}d overdue` : item.daysLeft === 0 ? 'Due today' : `${item.daysLeft}d left`;
+        const daysColor = isOv ? 'text-red-400' : isAR ? 'text-amber-400' : 'text-slate-500';
+        const worstFlag = item.flags[0];
+        const fc = DARK_FLAG_COLORS[worstFlag] ?? { text: '#94a3b8', bg: 'transparent' };
+        return (
+          <div key={item.projectId} className="flex items-center gap-3 py-2">
+            <span className="text-xs font-bold text-slate-700 w-5 shrink-0">{i + 1}</span>
+            <span className="w-1 self-stretch rounded-full shrink-0" style={{ backgroundColor: item.teamColor }} />
+            <span className="flex-1 text-sm text-slate-200 truncate">{item.projectName}</span>
+            <span className="rounded px-1.5 py-0.5 text-xs font-mono shrink-0" style={{ color: item.teamColor, backgroundColor: `${item.teamColor}20` }}>{item.teamKey}</span>
+            <span className="rounded-full px-2 py-0.5 text-xs font-bold shrink-0" style={{ color: fc.text, backgroundColor: fc.bg }}>{worstFlag}</span>
+            <span className={`text-xs font-semibold shrink-0 w-24 text-right ${daysColor}`}>{daysTxt}</span>
+            <span className="text-xs text-slate-600 shrink-0 w-24 text-right truncate">{item.lead ?? ''}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DashDataQuality({ flat }: { flat: FlatProject[] }) {
+  const missingHealth   = flat.filter(({ project: p }) => p.health === null).length;
+  const missingDeadline = flat.filter(({ project: p }) => !p.targetDate).length;
+  const missingLead     = flat.filter(({ project: p }) => !p.lead).length;
+  const stalled         = flat.filter(({ project: p }) => p.state === 'started' && p.progress === 0 && p.startDate && daysUntil(p.startDate) < 0).length;
+  const items = [
+    { label: 'missing deadline',      count: missingDeadline, cls: 'text-amber-400' },
+    { label: 'missing lead',          count: missingLead,     cls: 'text-amber-400' },
+    { label: 'stalled (0% progress)', count: stalled,         cls: 'text-purple-400' },
+    { label: 'missing health status', count: missingHealth,   cls: 'text-slate-500'  },
+  ].filter(i => i.count > 0);
+
+  if (items.length === 0) return (
+    <div className="flex items-center gap-2 rounded-lg border border-green-800 bg-green-950/30 px-4 py-3 mb-4 text-sm text-green-400">
+      <span>✓</span><span>All {flat.length} active projects have complete data.</span>
+    </div>
+  );
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border border-amber-800/50 bg-amber-950/20 px-4 py-3 mb-4">
+      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Data Quality</span>
+      {items.map(({ label, count, cls }) => (
+        <span key={label} className={`text-sm ${cls}`}><strong>{count}</strong> {label}</span>
+      ))}
+    </div>
+  );
+}
+
+function DashProjectList({ flat }: { flat: FlatProject[] }) {
+  if (flat.length === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-700/50">
+            <th className="w-1 p-0" />
+            {['Team', 'Project', 'Status', 'Burn Rate', 'Target Date', 'Lead', 'Milestones (90d)'].map(h => (
+              <th key={h} className="px-3 py-2 text-left text-xs font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-700/30">
+          {flat.map(({ project, team }) => {
+            const status = statusText(project);
+            const overdue = isOverdue(project);
+            const br = burnRate(project);
+            const STATUS_COLOR: Record<string, string> = {
+              'Overdue': 'text-red-400', 'At Risk': 'text-amber-400',
+              'Due Soon': 'text-yellow-400', 'Stalled': 'text-purple-400', 'On Hold': 'text-blue-400',
+            };
+            return (
+              <tr key={project.id} className="hover:bg-slate-700/20 transition-colors">
+                <td className="w-1 p-0" style={{ backgroundColor: team.color }} />
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <span className="rounded px-1.5 py-0.5 text-xs font-mono" style={{ color: team.color, backgroundColor: `${team.color}20` }}>{team.key}</span>
+                </td>
+                <td className="px-3 py-2 text-slate-200 font-medium max-w-xs truncate">
+                  <a href={project.url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-400 transition-colors">{project.name}</a>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <span className={`text-xs font-semibold ${STATUS_COLOR[status] ?? 'text-slate-400'}`}>{status}</span>
+                </td>
+                <td className="px-3 py-2 text-center whitespace-nowrap">
+                  {br ? (() => {
+                    const ep = Math.round(br.elapsed * 100), dp = Math.round(br.done * 100), gp = Math.round(br.gap * 100);
+                    const c = gp > 25 ? 'text-red-400' : gp > 10 ? 'text-amber-400' : 'text-green-400';
+                    return <div className="text-xs"><span className="text-slate-600">{ep}% elapsed</span><br /><span className={`font-semibold ${c}`}>{dp}% done</span>{gp > 10 && <><br /><span className={`text-xs ${c}`}>▲ {gp}% behind</span></>}</div>;
+                  })() : <span className="text-slate-700">—</span>}
+                </td>
+                <td className={`px-3 py-2 text-xs whitespace-nowrap ${overdue ? 'text-red-400 font-semibold' : 'text-slate-400'}`}>{formatDate(project.targetDate)}</td>
+                <td className={`px-3 py-2 text-xs ${project.lead ? 'text-slate-400' : 'text-slate-700 italic'}`}>{project.lead ? formatLeadName(project.lead.name) : 'No lead'}</td>
+                <td className="px-3 py-2 text-xs text-slate-600 max-w-xs truncate">{upcomingMilestones(project)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+function openReport(html: string) {
+  const w = window.open('', '_blank');
+  if (w) { w.document.write(html); w.document.close(); }
+}
+
 export default function PrintPage() {
-  const [teams, setTeams]         = useState<Team[] | null>(null);
-  const [ganttTeams, setGanttTeams] = useState<PrintGanttTeam[]>([]);
-  const [riskItems, setRiskItems] = useState<RiskItem[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
+  const [teams, setTeams]             = useState<Team[] | null>(null);
+  const [ganttTeams, setGanttTeams]   = useState<PrintGanttTeam[]>([]);
+  const [riskItems, setRiskItems]     = useState<RiskItem[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string>('');
 
   const quarter = getCurrentQuarter();
@@ -1177,141 +1526,107 @@ export default function PrintPage() {
 
   useEffect(() => { load(); }, []);
 
-  const dateSlug = new Date().toISOString().slice(0, 10);
+  const dateSlug  = new Date().toISOString().slice(0, 10);
+  const hygiene   = teams ? buildTeamHygiene(teams) : [];
+  const flat      = teams ? flattenAndSort(teams) : [];
+  const totalStuck = hygiene.reduce((s, h) => s + h.stuckInBacklog, 0);
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh' }}>
+    <div className="flex flex-col gap-6 p-6">
 
-      {/* Toolbar */}
-      <div className="no-print" style={{
-        position: 'sticky', top: 0, zIndex: 10,
-        backgroundColor: '#1e293b', borderBottom: '1px solid #334155',
-        padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 12,
-      }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: '#e2e8f0', flex: 1 }}>
-          Portfolio Report Preview
-        </span>
-        {generatedAt && <span style={{ fontSize: 12, color: '#64748b' }}>Data as of {generatedAt}</span>}
-        <button onClick={load} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, backgroundColor: '#334155', color: '#cbd5e1', border: '1px solid #475569', cursor: loading ? 'not-allowed' : 'pointer' }}>
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-        <button
-          onClick={() => teams && triggerDownload(generateReportHTML(teams, ganttTeams, riskItems, quarter.start, quarter.end, quarter.label, generatedAt), 'text/html;charset=utf-8', `sbir-portfolio-report-${dateSlug}.html`)}
-          disabled={loading || !!error || !teams}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, fontSize: 13, fontWeight: 500, backgroundColor: '#334155', color: '#cbd5e1', border: '1px solid #475569', cursor: loading || error || !teams ? 'not-allowed' : 'pointer', opacity: loading || error || !teams ? 0.5 : 1 }}
-        >
-          <Printer size={13} />
-          Download HTML
-        </button>
-        <button
-          onClick={() => window.print()}
-          disabled={loading || !!error}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, backgroundColor: '#2563eb', color: 'white', border: 'none', cursor: loading || error ? 'not-allowed' : 'pointer', opacity: loading || error ? 0.5 : 1 }}
-        >
-          <Printer size={13} />
-          Print / PDF
-        </button>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-bold text-slate-100">Portfolio Health</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Hygiene scorecard + risk overview across all active projects · Source: Linear
+            {generatedAt && <span className="ml-3 text-slate-600">as of {generatedAt}</span>}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={load}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          <button
+            onClick={() => teams && triggerDownload(
+              generateReportHTML(teams, ganttTeams, riskItems, quarter.start, quarter.end, quarter.label, generatedAt),
+              'text/html;charset=utf-8',
+              `sbir-portfolio-report-${dateSlug}.html`,
+            )}
+            disabled={loading || !!error || !teams}
+            className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-50"
+          >
+            <Printer size={13} />
+            Download HTML
+          </button>
+          <button
+            onClick={() => teams && openReport(
+              generateReportHTML(teams, ganttTeams, riskItems, quarter.start, quarter.end, quarter.label, generatedAt),
+            )}
+            disabled={loading || !!error || !teams}
+            className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
+          >
+            <Printer size={13} />
+            Open Report
+          </button>
+        </div>
       </div>
 
-      {/* Content */}
-      <div style={{ padding: '24px 32px', backgroundColor: '#e2e8f0', minHeight: 'calc(100vh - 53px)' }}>
-        <style>{`
-          .page-card {
-            background: white;
-            border-radius: 4px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.12);
-            padding: 32px;
-          }
-          .page-divider {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 10px 0;
-            color: #94a3b8;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-          }
-          .page-divider::before, .page-divider::after {
-            content: '';
-            flex: 1;
-            height: 1px;
-            background: #cbd5e1;
-          }
-        `}</style>
-
-        {/* Page 1: Portfolio Health */}
-        <div className="page-card print-page">
-          <div style={{ marginBottom: 20, borderBottom: '2px solid #1e40af', paddingBottom: 12 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.15em', color: '#1e40af', textTransform: 'uppercase', marginBottom: 2 }}>COLVIN RUN NETWORKS</div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', margin: 0 }}>SBIR Portfolio Report</h1>
-            {generatedAt && <p style={{ fontSize: 11, color: '#6b7280', margin: '4px 0 0' }}>Generated {generatedAt}</p>}
-          </div>
-
-          {loading && <div style={{ textAlign: 'center', padding: '60px 0', color: '#6b7280', fontSize: 14 }}>Loading portfolio data…</div>}
-          {error   && <div style={{ textAlign: 'center', padding: '60px 0', color: '#dc2626', fontSize: 14 }}>Error: {error}</div>}
-
-          {teams && !loading && (
-            <>
-              <h2 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Portfolio Health</h2>
-              <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 16 }}>Data hygiene scorecard across all active projects · Source: Linear</p>
-              <PortfolioHealthSection teams={teams} />
-            </>
-          )}
+      {loading && (
+        <div className="flex items-center justify-center py-20 text-slate-500 text-sm">
+          Loading portfolio data…
         </div>
+      )}
+      {error && (
+        <div className="flex items-center justify-center py-20 text-red-400 text-sm">
+          Error: {error}
+        </div>
+      )}
 
-        {teams && !loading && (
-          <>
-            {/* Page break indicator */}
-            <div className="no-print page-divider">Page 2 — Executive Summary</div>
-
-            {/* Page 2: Executive Summary */}
-            <div className="page-card print-page">
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 12 }}>Executive Summary</h2>
-              <p style={{ fontSize: 12, color: '#374151', lineHeight: 1.6, margin: '0 0 20px', padding: '12px 16px', background: '#f8fafc', borderLeft: '3px solid #1e40af', borderRadius: '0 4px 4px 0' }}>
-                {buildNarrative(teams, riskItems, riskItems.reduce((s, i) => s + i.backlogCount, 0))}
-              </p>
-              <RiskSummaryTiles items={riskItems} />
-              <TeamRiskMatrix teams={teams} riskItems={riskItems} />
-              <TopRisks items={riskItems} />
-            </div>
-
-            {/* Page break indicator */}
-            <div className="no-print page-divider">Page 3 — Project Detail</div>
-
-            {/* Page 3: Project Detail */}
-            <div className="page-card print-page">
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Project Detail</h2>
-              <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 12 }}>Active projects sorted by severity · Source: Linear</p>
-              <ProjectDetailSection teams={teams} />
-            </div>
-
-            {/* Page break indicator */}
-            {ganttTeams.length > 0 && (
-              <div className="no-print page-divider">Page 4 — Program Schedule ({quarter.label})</div>
-            )}
-
-            {/* Page 4: Gantt */}
-            {ganttTeams.length > 0 && (
-              <div className="page-card">
-                <GanttSection
-                  teams={ganttTeams}
-                  quarterStart={quarter.start}
-                  quarterEnd={quarter.end}
-                  quarterLabel={quarter.label}
-                />
+      {teams && !loading && (
+        <>
+          {/* Portfolio Health */}
+          <DashSection title="Portfolio Health">
+            <DashHealthTiles hygiene={hygiene} />
+            {totalStuck > 0 && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3">
+                <span className="mt-0.5 text-sm text-red-400">⚠</span>
+                <div className="text-sm">
+                  <span className="font-bold text-red-400">{totalStuck} project{totalStuck !== 1 ? 's' : ''} stuck</span>
+                  <span className="text-slate-400"> — Planned or On Hold with a start date already in the past. These projects have not moved to In Progress and may be blocking downstream work.</span>
+                </div>
               </div>
             )}
+          </DashSection>
 
-            {/* Footer — screen only */}
-            <div className="no-print" style={{ padding: '12px 0', fontSize: 10, color: '#94a3b8', textAlign: 'center' }}>
-              Colvin Run Networks · SBIR PM Dashboard · Data sourced from Linear · {generatedAt}
-            </div>
-          </>
-        )}
-      </div>
+          {/* Team Scorecard */}
+          <DashSection title="Team Scorecard">
+            <DashTeamScorecard hygiene={hygiene} />
+          </DashSection>
+
+          {/* Risk Overview */}
+          <DashSection title="Risk Overview">
+            <DashRiskTiles items={riskItems} />
+            <DashRiskMatrix teams={teams} riskItems={riskItems} />
+          </DashSection>
+
+          {/* Top Risks */}
+          <DashSection title={`Top Risks${riskItems.length > 10 ? ` (showing 10 of ${riskItems.length})` : ''}`}>
+            <DashTopRisks items={riskItems} />
+          </DashSection>
+
+          {/* Project Detail */}
+          <DashSection title="Project Detail">
+            <DashDataQuality flat={flat} />
+            <DashProjectList flat={flat} />
+          </DashSection>
+        </>
+      )}
     </div>
   );
 }
