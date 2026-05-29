@@ -107,7 +107,56 @@ function collectFlagged(teams: Team[], backlogMap: BacklogMap = {}): FlaggedProj
 
 
 
-// ── Drill-down project list for a given flag ─────────────────────────────────
+// ── Portfolio risk summary row ────────────────────────────────────────────────
+
+// Color mapping for the stat tiles (text color)
+const FLAG_STAT_COLOR: Record<FlagKey, string> = {
+  'overdue':   '#ef4444',
+  'at-risk':   '#f97316',
+  'due-soon':  '#eab308',
+  'stalled':   '#a855f7',
+  'on-hold':   '#3b82f6',
+  'no-date':   '#94a3b8',
+  'no-lead':   '#94a3b8',
+  'no-health': '#94a3b8',
+  'backlog':   '#f59e0b',
+};
+
+function RiskSummaryRow({ items }: { items: FlaggedProject[] }) {
+  const counts = useMemo(() => {
+    const map: Partial<Record<FlagKey, number>> = {};
+    for (const item of items) {
+      for (const f of item.flags) map[f] = (map[f] ?? 0) + 1;
+    }
+    return map;
+  }, [items]);
+
+  return (
+    <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-9">
+      {FLAG_ORDER.map(f => {
+        const count = counts[f] ?? 0;
+        return (
+          <div
+            key={f}
+            className="flex flex-col items-center justify-center rounded-lg border border-slate-700/50 bg-slate-800/40 px-3 py-3 gap-1"
+          >
+            <span
+              className="text-2xl font-bold tabular-nums leading-none"
+              style={{ color: count > 0 ? FLAG_STAT_COLOR[f] : '#334155' }}
+            >
+              {count}
+            </span>
+            <span className="text-xs font-medium uppercase tracking-wider text-slate-500 text-center leading-tight">
+              {FLAG_META[f].label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
 
 function DrillDownList({ items, flag }: { items: FlaggedProject[]; flag: FlagKey }) {
   const projects = items.filter(i => i.flags.includes(flag));
@@ -352,6 +401,9 @@ export default function AttentionPage() {
             <AllClearBanner />
           ) : (
             <>
+              {/* Portfolio-wide risk totals */}
+              <RiskSummaryRow items={allItems} />
+
               {/* Hint banner */}
               <div className="flex items-start gap-2.5 rounded-lg border border-blue-900/40 bg-blue-950/20 px-4 py-3 text-xs text-blue-300/80">
                 <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-400/60" />
