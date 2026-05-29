@@ -2,18 +2,15 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  AlertTriangle, Clock, User, CalendarRange,
-  CheckCircle2, ShieldAlert, ExternalLink, PauseCircle,
+  AlertTriangle, Clock, CalendarRange,
+  CheckCircle2, ShieldAlert, PauseCircle,
   CalendarX, UserX, Activity, Gauge, Inbox,
 } from 'lucide-react';
 import { fetchPortfolio, fetchBacklogByProject } from '@/lib/api';
 import type { BacklogIssue, BacklogMap } from '@/lib/api';
 import {
-  cn, isAtRisk, isOverdue, daysUntil, formatDate, formatLeadName,
-  healthClasses, healthLabel,
+  cn, isAtRisk, isOverdue, daysUntil,
 } from '@/lib/utils';
-import { ProgressBar } from '@/components/ProgressBar';
-import { StatusBadge } from '@/components/StatusBadge';
 import { CUIBadge } from '@/components/CUIBadge';
 import { RefreshButton } from '@/components/RefreshButton';
 import type { Team, Project } from '@/lib/types';
@@ -108,23 +105,6 @@ function collectFlagged(teams: Team[], backlogMap: BacklogMap = {}): FlaggedProj
   return result;
 }
 
-// ── Flag sub-label (brief, shown inside card cell when active) ────────────────
-
-function flagSub(flag: FlagKey, item: FlaggedProject): string {
-  switch (flag) {
-    case 'overdue':
-      return item.daysLeft === null ? '' : item.daysLeft === 0 ? 'today' : `${Math.abs(item.daysLeft)}d`;
-    case 'at-risk':
-    case 'due-soon':
-      return item.daysLeft !== null ? `${item.daysLeft}d left` : '';
-    case 'stalled':
-      return item.project.startDate ? `${Math.abs(daysUntil(item.project.startDate))}d ago` : '';
-    case 'backlog':
-      return `${item.backlogIssues.length} issues`;
-    default:
-      return '';
-  }
-}
 
 // ── Filter chips ──────────────────────────────────────────────────────────────
 
@@ -195,93 +175,25 @@ function FilterChips({
   );
 }
 
-// ── Project row inside a team risk card ───────────────────────────────────────
-
-function ProjectRiskRow({ item }: { item: FlaggedProject }) {
-  const { project } = item;
-  return (
-    <div className="px-4 py-3 flex flex-col gap-2 border-t border-slate-700/30">
-      {/* Name + meta + status */}
-      <div className="flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <a
-            href={project.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group inline-flex items-center gap-1.5 text-sm font-semibold text-white hover:text-blue-300 transition-colors leading-snug"
-          >
-            {project.name}
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
-          </a>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
-            <span className="flex items-center gap-1">
-              {project.lead
-                ? <><User className="h-3 w-3" />{formatLeadName(project.lead.name)}</>
-                : <><UserX className="h-3 w-3 text-slate-600" /><span className="italic text-slate-600">No lead</span></>}
-            </span>
-            {(project.startDate || project.targetDate) && (
-              <span className="flex items-center gap-1">
-                <CalendarRange className="h-3 w-3" />
-                {project.startDate ? formatDate(project.startDate) : '—'}
-                {project.targetDate && ` → ${formatDate(project.targetDate)}`}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <StatusBadge state={project.state} />
-          {project.health && (
-            <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', healthClasses(project.health))}>
-              {healthLabel(project.health)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Active flag chips — only flags that apply */}
-      <div className="flex flex-wrap gap-1.5">
-        {item.flags.map(f => {
-          const sub = flagSub(f, item);
-          return (
-            <span key={f} className={cn('flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-medium', FLAG_META[f].badge)}>
-              {FLAG_META[f].icon}
-              {FLAG_META[f].label}
-              {sub && <span className="opacity-75 font-normal">{sub}</span>}
-            </span>
-          );
-        })}
-      </div>
-
-      {/* Progress */}
-      <div>
-        <div className="mb-1 flex items-center justify-between text-xs text-slate-600">
-          <span>Progress</span>
-          <span className={project.progress < 0.25 ? 'text-red-400 font-medium' : 'text-slate-500'}>
-            {Math.round(project.progress * 100)}%
-          </span>
-        </div>
-        <ProgressBar progress={project.progress} height="sm" showLabel={false} />
-      </div>
-    </div>
-  );
-}
-
-// ── Team risk card (one per team) ─────────────────────────────────────────────
+// ── Team risk card (compact scorecard) ───────────────────────────────────────
 
 function TeamRiskCard({ team, projects }: { team: Team; projects: FlaggedProject[] }) {
-  // Worst-case border color based on highest-priority flag across all projects
   const allFlags = projects.flatMap(p => p.flags);
-  const hasOverdue  = allFlags.includes('overdue');
-  const hasAtRisk   = allFlags.includes('at-risk');
+  const hasOverdue = allFlags.includes('overdue');
+  const hasAtRisk  = allFlags.includes('at-risk');
   const borderColor = hasOverdue ? '#ef444435' : hasAtRisk ? '#f9731635' : '#33415540';
 
-  // Unique flags across all team projects for the summary row
-  const uniqueFlags = FLAG_ORDER.filter(f => allFlags.includes(f));
+  // Count how many projects have each flag
+  const counts: Partial<Record<FlagKey, number>> = {};
+  for (const f of allFlags) counts[f] = (counts[f] ?? 0) + 1;
 
   return (
     <div className="rounded-lg border bg-slate-800/40" style={{ borderColor }}>
       {/* Team header */}
-      <div className="flex items-center gap-2 px-4 py-3 rounded-t-lg" style={{ borderBottom: `1px solid ${team.color}25`, backgroundColor: `${team.color}0d` }}>
+      <div
+        className="flex items-center gap-2 px-4 py-2.5 rounded-t-lg"
+        style={{ borderBottom: `1px solid ${team.color}25`, backgroundColor: `${team.color}0d` }}
+      >
         <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: team.color }} />
         <span className="text-sm font-bold text-white">{team.name}</span>
         <span className="rounded px-1.5 py-0.5 font-mono text-xs" style={{ color: team.color, backgroundColor: `${team.color}25` }}>
@@ -293,22 +205,34 @@ function TeamRiskCard({ team, projects }: { team: Team; projects: FlaggedProject
         </span>
       </div>
 
-      {/* Flag summary chips for this team */}
-      {uniqueFlags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 px-4 py-2 border-b border-slate-700/30 bg-slate-900/20">
-          {uniqueFlags.map(f => (
-            <span key={f} className={cn('flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', FLAG_META[f].badge)}>
-              {FLAG_META[f].icon}
-              {FLAG_META[f].label}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Project rows */}
-      {projects.map(item => (
-        <ProjectRiskRow key={item.project.id} item={item} />
-      ))}
+      {/* Risk category count grid */}
+      <div className="grid grid-cols-3 gap-px bg-slate-700/20 border-t border-slate-700/20">
+        {FLAG_ORDER.map(f => {
+          const count  = counts[f] ?? 0;
+          const active = count > 0;
+          return (
+            <div
+              key={f}
+              className={cn(
+                'flex items-center gap-2 px-3 py-2.5 bg-slate-800/40',
+                active ? '' : 'opacity-30'
+              )}
+            >
+              <span className={cn('shrink-0', active ? FLAG_META[f].row : 'text-slate-600')}>
+                {FLAG_META[f].icon}
+              </span>
+              <span className="min-w-0">
+                <span className={cn('block text-base font-bold tabular-nums leading-none', active ? FLAG_META[f].row : 'text-slate-600')}>
+                  {count}
+                </span>
+                <span className="block text-xs text-slate-500 truncate leading-tight mt-0.5">
+                  {FLAG_META[f].label}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
