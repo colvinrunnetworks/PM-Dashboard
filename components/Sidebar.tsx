@@ -47,7 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: '/print',
-    label: 'Export Report',
+    label: 'Portfolio Health',
     icon: <Printer className="h-4 w-4" />,
     exact: true,
   },

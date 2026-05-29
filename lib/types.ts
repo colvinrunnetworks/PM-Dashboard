@@ -52,6 +52,8 @@ export type ProjectHealth = 'onTrack' | 'atRisk' | 'offTrack';
 export interface Project {
   id: string;
   name: string;
+  description: string | null;
+  priority: Priority;
   state: ProjectState;
   url: string;
   health: ProjectHealth | null;       // PM-set health in Linear (null if never updated)

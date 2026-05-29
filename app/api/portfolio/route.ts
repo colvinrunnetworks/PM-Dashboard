@@ -11,6 +11,8 @@ const PORTFOLIO_QUERY = `{
         nodes {
           id
           name
+          description
+          priority
           state
           url
           health

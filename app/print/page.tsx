@@ -625,6 +625,163 @@ function ProjectDetailSection({ teams }: { teams: Team[] }) {
   );
 }
 
+// ── Page 4: Portfolio Health ──────────────────────────────────────────────────
+
+const PRIORITY_LABEL: Record<number, string> = { 0: 'None', 1: 'Urgent', 2: 'High', 3: 'Normal', 4: 'Low' };
+
+interface TeamHygiene {
+  team: Team;
+  active: number;         // non-completed, non-cancelled
+  withLead: number;
+  withTargetDate: number;
+  withStartDate: number;
+  withHealth: number;
+  withDescription: number;
+  withPriority: number;   // priority != 0
+  stuckInBacklog: number; // state=planned/paused AND startDate in the past
+}
+
+function buildTeamHygiene(teams: Team[]): TeamHygiene[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return teams.map(team => {
+    const active = team.projects.nodes.filter(p => p.state !== 'completed' && p.state !== 'cancelled');
+    const n = active.length;
+    if (n === 0) return { team, active: 0, withLead: 0, withTargetDate: 0, withStartDate: 0, withHealth: 0, withDescription: 0, withPriority: 0, stuckInBacklog: 0 };
+
+    return {
+      team,
+      active: n,
+      withLead:        active.filter(p => p.lead).length,
+      withTargetDate:  active.filter(p => p.targetDate).length,
+      withStartDate:   active.filter(p => p.startDate).length,
+      withHealth:      active.filter(p => p.health !== null).length,
+      withDescription: active.filter(p => p.description && p.description.trim().length > 0).length,
+      withPriority:    active.filter(p => p.priority !== 0).length,
+      stuckInBacklog:  active.filter(p => {
+        if (p.state !== 'planned' && p.state !== 'paused') return false;
+        if (!p.startDate) return false;
+        return new Date(p.startDate + 'T00:00:00Z') < today;
+      }).length,
+    };
+  }).filter(h => h.active > 0);
+}
+
+function pct(n: number, total: number): number {
+  return total === 0 ? 0 : Math.round((n / total) * 100);
+}
+
+function HygieneCell({ n, total, warn = 60, bad = 40 }: { n: number; total: number; warn?: number; bad?: number }) {
+  const p = pct(n, total);
+  const color = p >= 80 ? '#16a34a' : p >= warn ? '#d97706' : p >= bad ? '#ea580c' : '#dc2626';
+  const bg    = p >= 80 ? '#f0fdf4' : p >= warn ? '#fffbeb' : p >= bad ? '#fff7ed' : '#fef2f2';
+  return (
+    <td style={{ padding: '6px 8px', textAlign: 'center', backgroundColor: n === 0 ? 'transparent' : bg }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: n === 0 ? '#d1d5db' : color }}>{p}%</span>
+      <span style={{ fontSize: 9, color: '#9ca3af', display: 'block' }}>{n}/{total}</span>
+    </td>
+  );
+}
+
+function StuckBadge({ count }: { count: number }) {
+  if (count === 0) return <td style={{ padding: '6px 8px', textAlign: 'center', color: '#d1d5db', fontSize: 12 }}>—</td>;
+  return (
+    <td style={{ padding: '6px 8px', textAlign: 'center', backgroundColor: '#fef2f2' }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626' }}>{count}</span>
+    </td>
+  );
+}
+
+function PortfolioHealthSection({ teams }: { teams: Team[] }) {
+  const hygiene = buildTeamHygiene(teams);
+  if (hygiene.length === 0) return null;
+
+  const totals = hygiene.reduce((acc, h) => ({
+    active:          acc.active          + h.active,
+    withLead:        acc.withLead        + h.withLead,
+    withTargetDate:  acc.withTargetDate  + h.withTargetDate,
+    withStartDate:   acc.withStartDate   + h.withStartDate,
+    withHealth:      acc.withHealth      + h.withHealth,
+    withDescription: acc.withDescription + h.withDescription,
+    withPriority:    acc.withPriority    + h.withPriority,
+    stuckInBacklog:  acc.stuckInBacklog  + h.stuckInBacklog,
+  }), { active: 0, withLead: 0, withTargetDate: 0, withStartDate: 0, withHealth: 0, withDescription: 0, withPriority: 0, stuckInBacklog: 0 });
+
+  const cols = ['Lead', 'Target Date', 'Start Date', 'PM Health', 'Description', 'Priority'];
+
+  return (
+    <>
+      {/* Overall score bar */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Lead Coverage',    n: totals.withLead,        color: '#2563eb' },
+          { label: 'Target Dates',     n: totals.withTargetDate,  color: '#16a34a' },
+          { label: 'PM Health Set',    n: totals.withHealth,      color: '#7c3aed' },
+          { label: 'Has Description',  n: totals.withDescription, color: '#d97706' },
+          { label: 'Priority Set',     n: totals.withPriority,    color: '#dc2626' },
+        ].map(({ label, n, color }) => {
+          const p = pct(n, totals.active);
+          return (
+            <div key={label} style={{ flex: 1, minWidth: 100, padding: '10px 14px', borderRadius: 6, border: '1px solid #e5e7eb', backgroundColor: '#fafafa' }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: p >= 80 ? '#16a34a' : p >= 60 ? '#d97706' : '#dc2626', lineHeight: 1 }}>{p}%</div>
+              <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>{label}</div>
+              <div style={{ marginTop: 6, height: 4, borderRadius: 2, backgroundColor: '#e5e7eb' }}>
+                <div style={{ height: '100%', borderRadius: 2, width: `${p}%`, backgroundColor: color }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Per-team scorecard */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <thead>
+          <tr style={{ backgroundColor: '#f3f4f6' }}>
+            <th style={{ padding: '5px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af' }}>Team</th>
+            <th style={{ padding: '5px 8px', textAlign: 'center', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9ca3af' }}>Active</th>
+            {cols.map(c => <th key={c} style={{ padding: '5px 8px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9ca3af', whiteSpace: 'nowrap' }}>{c}</th>)}
+            <th style={{ padding: '5px 8px', textAlign: 'center', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#dc2626', whiteSpace: 'nowrap' }}>Stuck</th>
+          </tr>
+        </thead>
+        <tbody>
+          {hygiene.map(h => (
+            <tr key={h.team.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
+              <td style={{ padding: '6px 10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: h.team.color, display: 'inline-block', flexShrink: 0 }} />
+                  <span style={{ fontWeight: 600, color: '#111827', fontSize: 12 }}>{h.team.name}</span>
+                  <span style={{ fontSize: 9, fontFamily: 'monospace', color: h.team.color, backgroundColor: `${h.team.color}20`, padding: '1px 5px', borderRadius: 3 }}>{h.team.key}</span>
+                </div>
+              </td>
+              <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#374151' }}>{h.active}</td>
+              <HygieneCell n={h.withLead}        total={h.active} />
+              <HygieneCell n={h.withTargetDate}  total={h.active} />
+              <HygieneCell n={h.withStartDate}   total={h.active} />
+              <HygieneCell n={h.withHealth}      total={h.active} />
+              <HygieneCell n={h.withDescription} total={h.active} />
+              <HygieneCell n={h.withPriority}    total={h.active} warn={40} bad={20} />
+              <StuckBadge count={h.stuckInBacklog} />
+            </tr>
+          ))}
+          {/* Portfolio totals row */}
+          <tr style={{ borderTop: '2px solid #e5e7eb', backgroundColor: '#f9fafb' }}>
+            <td style={{ padding: '6px 10px', fontWeight: 700, color: '#111827', fontSize: 12 }}>Portfolio Total</td>
+            <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#111827' }}>{totals.active}</td>
+            <HygieneCell n={totals.withLead}        total={totals.active} />
+            <HygieneCell n={totals.withTargetDate}  total={totals.active} />
+            <HygieneCell n={totals.withStartDate}   total={totals.active} />
+            <HygieneCell n={totals.withHealth}      total={totals.active} />
+            <HygieneCell n={totals.withDescription} total={totals.active} />
+            <HygieneCell n={totals.withPriority}    total={totals.active} warn={40} bad={20} />
+            <StuckBadge count={totals.stuckInBacklog} />
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 // ── HTML export helpers ───────────────────────────────────────────────────────
 
 function buildGanttHTMLSection(
@@ -1097,6 +1254,16 @@ export default function PrintPage() {
                 />
               </div>
             )}
+
+            {/* Page break indicator */}
+            <div className="no-print page-divider">Page 4 — Portfolio Health</div>
+
+            {/* Page 4: Portfolio Health */}
+            <div className="page-card print-page">
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>Portfolio Health</h2>
+              <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 20 }}>Data hygiene scorecard across all active projects · Source: Linear</p>
+              <PortfolioHealthSection teams={teams} />
+            </div>
 
             {/* Footer — screen only */}
             <div className="no-print" style={{ padding: '12px 0', fontSize: 10, color: '#94a3b8', textAlign: 'center' }}>
