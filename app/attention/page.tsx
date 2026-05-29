@@ -108,37 +108,21 @@ function collectFlagged(teams: Team[], backlogMap: BacklogMap = {}): FlaggedProj
   return result;
 }
 
-// ── Flag detail text ──────────────────────────────────────────────────────────
+// ── Flag sub-label (brief, shown inside card cell when active) ────────────────
 
-function flagDetail(flag: FlagKey, item: FlaggedProject): string {
-  const pct = Math.round(item.project.progress * 100);
+function flagSub(flag: FlagKey, item: FlaggedProject): string {
   switch (flag) {
     case 'overdue':
-      return item.daysLeft === null ? 'No target date'
-           : item.daysLeft === 0   ? 'Due today'
-           : `${Math.abs(item.daysLeft)}d past deadline`;
+      return item.daysLeft === null ? '' : item.daysLeft === 0 ? 'today' : `${Math.abs(item.daysLeft)}d`;
     case 'at-risk':
-      return item.daysLeft !== null
-           ? `${item.daysLeft}d remaining · ${pct}% complete`
-           : `${pct}% complete`;
     case 'due-soon':
-      return item.daysLeft !== null
-           ? `${item.daysLeft}d to deadline · ${pct}% complete`
-           : `${pct}% complete`;
-    case 'on-hold':
-      return 'Project is paused';
+      return item.daysLeft !== null ? `${item.daysLeft}d left` : '';
     case 'stalled':
-      return item.project.startDate
-           ? `0% progress · started ${Math.abs(daysUntil(item.project.startDate))}d ago`
-           : '0% progress, no recent activity';
-    case 'no-date':
-      return 'No target date set in Linear';
-    case 'no-lead':
-      return 'No project lead assigned';
-    case 'no-health':
-      return 'Health status not updated in Linear';
+      return item.project.startDate ? `${Math.abs(daysUntil(item.project.startDate))}d ago` : '';
     case 'backlog':
-      return `${item.backlogIssues.length} unresolved issue${item.backlogIssues.length !== 1 ? 's' : ''} in backlog`;
+      return `${item.backlogIssues.length} issues`;
+    default:
+      return '';
   }
 }
 
@@ -215,39 +199,26 @@ function FilterChips({
 
 function RiskCard({ item }: { item: FlaggedProject }) {
   const { project, team } = item;
-  const isOverdueItem  = item.flags.includes('overdue');
-  const isAtRiskItem   = item.flags.includes('at-risk');
-  const borderColor    = isOverdueItem ? '#ef444430' : isAtRiskItem ? '#f9731630' : '#33415540';
-  const headerBg       = isOverdueItem ? 'bg-red-950/20' : isAtRiskItem ? 'bg-orange-950/15' : 'bg-slate-800/20';
-
-  // Time urgency label
-  let timeText = '';
-  let timeClass = '';
-  if (isOverdueItem) {
-    timeText  = item.daysLeft === null ? 'No date' : item.daysLeft === 0 ? 'Due today' : `${Math.abs(item.daysLeft)}d overdue`;
-    timeClass = 'text-red-400 font-semibold';
-  } else if (isAtRiskItem || item.flags.includes('due-soon')) {
-    const d = item.daysLeft;
-    timeText  = d === null ? '' : d === 0 ? 'Due today' : d === 1 ? 'Due tomorrow' : `${d}d left`;
-    timeClass = d !== null && d <= 7 ? 'text-orange-400 font-semibold' : 'text-yellow-400 font-medium';
-  }
+  const isOverdueItem = item.flags.includes('overdue');
+  const isAtRiskItem  = item.flags.includes('at-risk');
+  const borderColor   = isOverdueItem ? '#ef444435' : isAtRiskItem ? '#f9731635' : '#33415540';
 
   return (
-    <div className="rounded-lg border bg-slate-800/40 flex flex-col transition-shadow hover:shadow-md" style={{ borderColor }}>
-      {/* ── Header ── */}
-      <div className={cn('flex items-center gap-2 rounded-t-lg px-4 py-2.5', headerBg)}>
-        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: team.color }} />
-        <span className="text-xs font-medium text-slate-400">{team.name}</span>
-        <span className="rounded px-1 py-0.5 font-mono text-xs" style={{ color: team.color, backgroundColor: `${team.color}20` }}>
-          {team.key}
-        </span>
-        {team.isCUI && <CUIBadge compact />}
-        {timeText && <span className={cn('ml-auto text-sm shrink-0', timeClass)}>{timeText}</span>}
-      </div>
+    <div className="rounded-lg border bg-slate-800/40 flex flex-col" style={{ borderColor }}>
 
-      {/* ── Project info ── */}
-      <div className="px-4 pt-3 pb-2 flex items-start gap-3">
+      {/* ── Header: team + project ── */}
+      <div className="px-4 pt-3 pb-2 flex items-start gap-3 border-b border-slate-700/40">
         <div className="flex-1 min-w-0">
+          {/* Team line */}
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: team.color }} />
+            <span className="text-xs text-slate-500">{team.name}</span>
+            <span className="rounded px-1 py-0.5 font-mono text-xs" style={{ color: team.color, backgroundColor: `${team.color}20` }}>
+              {team.key}
+            </span>
+            {team.isCUI && <CUIBadge compact />}
+          </div>
+          {/* Project name */}
           <a
             href={project.url}
             target="_blank"
@@ -257,16 +228,14 @@ function RiskCard({ item }: { item: FlaggedProject }) {
             {project.name}
             <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-0 group-hover:opacity-60 transition-opacity" />
           </a>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
-            {project.lead ? (
-              <span className="flex items-center gap-1">
-                <User className="h-3 w-3" />{formatLeadName(project.lead.name)}
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-slate-600 italic">
-                <UserX className="h-3 w-3" />No lead
-              </span>
-            )}
+          {/* Meta: lead · dates */}
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
+            <span className="flex items-center gap-1">
+              {project.lead
+                ? <><User className="h-3 w-3" />{formatLeadName(project.lead.name)}</>
+                : <><UserX className="h-3 w-3 text-slate-600" /><span className="italic text-slate-600">No lead</span></>
+              }
+            </span>
             {(project.startDate || project.targetDate) && (
               <span className="flex items-center gap-1">
                 <CalendarRange className="h-3 w-3" />
@@ -286,23 +255,27 @@ function RiskCard({ item }: { item: FlaggedProject }) {
         </div>
       </div>
 
-      {/* ── Risk items ── */}
-      <div className="mx-4 mb-3 rounded-md border border-slate-700/40 bg-slate-900/30 divide-y divide-slate-700/30">
-        <div className="px-3 py-1.5 flex items-center gap-1.5">
-          <ShieldAlert className="h-3 w-3 text-slate-500" />
-          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-            Risk Items ({item.flags.length})
-          </span>
-        </div>
-        {item.flags.map(f => (
-          <div key={f} className="flex items-center gap-2.5 px-3 py-2">
-            <span className={cn('shrink-0', FLAG_META[f].row)}>{FLAG_META[f].icon}</span>
-            <span className={cn('text-xs font-medium w-28 shrink-0', FLAG_META[f].row)}>
-              {FLAG_META[f].label}
-            </span>
-            <span className="text-xs text-slate-400 truncate">{flagDetail(f, item)}</span>
-          </div>
-        ))}
+      {/* ── Risk scorecard: all categories ── */}
+      <div className="px-4 py-3 grid grid-cols-3 gap-2">
+        {FLAG_ORDER.map(f => {
+          const active = item.flags.includes(f);
+          const sub    = active ? flagSub(f, item) : '';
+          return (
+            <div
+              key={f}
+              className={cn(
+                'flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors',
+                active ? FLAG_META[f].badge : 'border-slate-800 text-slate-700 bg-transparent'
+              )}
+            >
+              <span className={active ? '' : 'opacity-30'}>{FLAG_META[f].icon}</span>
+              <span className="truncate leading-tight">
+                {FLAG_META[f].label}
+                {sub && <span className="ml-1 font-normal opacity-80">{sub}</span>}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* ── Progress ── */}
@@ -315,31 +288,6 @@ function RiskCard({ item }: { item: FlaggedProject }) {
         </div>
         <ProgressBar progress={project.progress} height="md" showLabel={false} />
       </div>
-
-      {/* ── Backlog issues ── */}
-      {item.backlogIssues.length > 0 && (
-        <div className="border-t border-slate-700/40 px-4 py-2.5">
-          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-500/80 uppercase tracking-wider">
-            <Inbox className="h-3 w-3" />
-            Backlog Issues ({item.backlogIssues.length})
-          </div>
-          <ul className="space-y-1">
-            {item.backlogIssues.slice(0, 6).map((issue) => (
-              <li key={issue.id} className="flex items-center gap-2 text-xs text-amber-400/70">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500/50 shrink-0" />
-                <span className="font-mono text-amber-600/60 shrink-0">{issue.identifier}</span>
-                <span className="truncate">{issue.title}</span>
-                <span className="shrink-0 text-amber-700/70">{issue.state.name}</span>
-              </li>
-            ))}
-            {item.backlogIssues.length > 6 && (
-              <li className="text-xs text-slate-600 pl-3.5">
-                +{item.backlogIssues.length - 6} more
-              </li>
-            )}
-          </ul>
-        </div>
-      )}
     </div>
   );
 }
