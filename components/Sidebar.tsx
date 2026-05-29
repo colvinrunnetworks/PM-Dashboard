@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Settings, Shield, AlertTriangle, CalendarClock, GanttChart, Printer, Users, Target } from 'lucide-react';
+import { Settings, Shield, AlertTriangle, CalendarClock, GanttChart, Printer, Users, Target, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAttentionCount } from '@/lib/useAttentionCount';
 
@@ -44,6 +44,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Gantt',
     icon: <GanttChart className="h-4 w-4" />,
     exact: false,
+  },
+  {
+    href: '/monthly',
+    label: 'Monthly Report',
+    icon: <FileText className="h-4 w-4" />,
+    exact: true,
   },
   {
     href: '/print',
