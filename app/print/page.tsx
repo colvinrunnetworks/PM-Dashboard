@@ -519,8 +519,8 @@ function DataQualityBlock({ projects }: { projects: FlatProject[] }) {
 
   return (
     <div style={{ padding: '10px 16px', borderRadius: 6, border: '1px solid #fde68a', backgroundColor: '#fffbeb', marginBottom: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#92400e', marginBottom: 8 }}>
-        Data Quality — {total} active projects
+      <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', marginBottom: 8 }}>
+        Data Quality <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: '#9ca3af', fontSize: 11 }}>— {total} active projects</span>
       </div>
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
         {items.map(({ label, count, color }) => (
@@ -735,7 +735,19 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
         })}
       </div>
 
+      {/* Stuck definition callout */}
+      {totals.stuckInBacklog > 0 && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 6, border: '1px solid #fecaca', backgroundColor: '#fef2f2', marginBottom: 16 }}>
+          <span style={{ fontSize: 16, lineHeight: 1 }}>⚠</span>
+          <div>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#dc2626' }}>{totals.stuckInBacklog} project{totals.stuckInBacklog !== 1 ? 's' : ''} stuck</span>
+            <span style={{ fontSize: 12, color: '#6b7280' }}> — Planned or On Hold with a start date already in the past. These projects have not been moved to In Progress and may be blocking downstream work.</span>
+          </div>
+        </div>
+      )}
+
       {/* Per-team scorecard */}
+      <h3 style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#6b7280', margin: '0 0 8px' }}>Team Scorecard</h3>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
         <thead>
           <tr style={{ backgroundColor: '#f3f4f6' }}>
@@ -779,6 +791,9 @@ function PortfolioHealthSection({ teams }: { teams: Team[] }) {
           </tr>
         </tbody>
       </table>
+      <div style={{ marginTop: 8, fontSize: 9, color: '#9ca3af' }}>
+        Color key: <span style={{ color: '#16a34a', fontWeight: 600 }}>Green ≥80%</span> · <span style={{ color: '#d97706', fontWeight: 600 }}>Amber ≥60%</span> · <span style={{ color: '#ea580c', fontWeight: 600 }}>Orange ≥40%</span> · <span style={{ color: '#dc2626', fontWeight: 600 }}>Red &lt;40%</span> · Stuck = Planned/On Hold with start date in the past
+      </div>
     </>
   );
 }
