@@ -106,74 +106,6 @@ function collectFlagged(teams: Team[], backlogMap: BacklogMap = {}): FlaggedProj
 }
 
 
-// ── Filter chips ──────────────────────────────────────────────────────────────
-
-function FilterChips({
-  items,
-  active,
-  onSelect,
-}: {
-  items: FlaggedProject[];
-  active: FlagKey | null;
-  onSelect: (f: FlagKey | null) => void;
-}) {
-  const counts = useMemo(() => {
-    const map: Partial<Record<FlagKey, number>> = {};
-    for (const item of items) {
-      for (const f of item.flags) {
-        map[f] = (map[f] ?? 0) + 1;
-      }
-    }
-    return map;
-  }, [items]);
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      <button
-        onClick={() => onSelect(null)}
-        className={cn(
-          'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-          active === null
-            ? 'bg-blue-600/20 text-blue-300 border-blue-500/50'
-            : 'text-slate-400 border-slate-700 hover:border-slate-500'
-        )}
-      >
-        All
-        <span className={cn(
-          'rounded-full px-1.5 py-0.5 text-xs font-bold tabular-nums',
-          active === null ? 'bg-blue-500/30 text-blue-200' : 'bg-slate-700 text-slate-400'
-        )}>
-          {items.length}
-        </span>
-      </button>
-
-      {FLAG_ORDER.filter(f => (counts[f] ?? 0) > 0).map(f => {
-        const meta = FLAG_META[f];
-        const count = counts[f] ?? 0;
-        const isActive = active === f;
-        return (
-          <button
-            key={f}
-            onClick={() => onSelect(isActive ? null : f)}
-            className={cn(
-              'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-              isActive ? meta.chipActive : meta.chipInactive
-            )}
-          >
-            {meta.icon}
-            {meta.label}
-            <span className={cn(
-              'rounded-full px-1.5 py-0.5 text-xs font-bold tabular-nums',
-              isActive ? 'bg-white/10 text-inherit' : 'bg-slate-700 text-slate-400'
-            )}>
-              {count}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 // ── Drill-down project list for a given flag ─────────────────────────────────
 
@@ -333,24 +265,15 @@ function AllClearBanner() {
   );
 }
 
-function EmptyFilter({ flag }: { flag: FlagKey }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-slate-700/40 bg-slate-800/20 py-12">
-      <CheckCircle2 className="h-8 w-8 text-slate-600" />
-      <div className="text-sm text-slate-500">No projects flagged as <span className="text-slate-400 font-medium">{FLAG_META[flag].label}</span>.</div>
-    </div>
-  );
-}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function AttentionPage() {
-  const [allItems, setAllItems]         = useState<FlaggedProject[]>([]);
-  const [activeFilter, setActiveFilter] = useState<FlagKey | null>(null);
+  const [allItems, setAllItems]             = useState<FlaggedProject[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState<string | null>(null);
-  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [loading, setLoading]               = useState(true);
+  const [error, setError]                   = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed]   = useState<Date | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -380,16 +303,10 @@ export default function AttentionPage() {
     return [...seen.values()];
   }, [allItems]);
 
-  // Apply team filter first, then flag filter
-  const teamFiltered = useMemo(
+  const visibleItems = useMemo(
     () => selectedTeamId ? allItems.filter(i => i.team.id === selectedTeamId) : allItems,
     [allItems, selectedTeamId]
   );
-
-  const visibleItems = useMemo(() => {
-    if (!activeFilter) return teamFiltered;
-    return teamFiltered.filter(item => item.flags.includes(activeFilter));
-  }, [teamFiltered, activeFilter]);
 
   // Group visible items by team, preserving sort order
   const groupedByTeam = useMemo(() => {
@@ -401,8 +318,6 @@ export default function AttentionPage() {
     return [...map.values()];
   }, [visibleItems]);
 
-  const filtersActive = selectedTeamId !== null || activeFilter !== null;
-
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
@@ -413,7 +328,7 @@ export default function AttentionPage() {
             Risk Register
           </h1>
           <p className="text-sm text-slate-500">
-            {loading ? 'Loading…' : filtersActive
+            {loading ? 'Loading…' : selectedTeamId
               ? `${visibleItems.length} of ${allItems.length} flagged project${allItems.length !== 1 ? 's' : ''}`
               : `${allItems.length} flagged project${allItems.length !== 1 ? 's' : ''} across all teams`}
           </p>
@@ -441,7 +356,7 @@ export default function AttentionPage() {
               <div className="flex items-start gap-2.5 rounded-lg border border-blue-900/40 bg-blue-950/20 px-4 py-3 text-xs text-blue-300/80">
                 <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-400/60" />
                 <span>
-                  Select a <span className="font-semibold text-blue-300">team</span> below to focus on it, then click any risk category to see the affected projects and jump directly to them in Linear.
+                  Click any risk category number to expand a list of affected projects with direct links to Linear. Use the <span className="font-semibold text-blue-300">team filter</span> below to focus on a single team.
                 </span>
               </div>
 
@@ -478,18 +393,11 @@ export default function AttentionPage() {
                 </div>
               )}
 
-              {/* Flag filter chips */}
-              <FilterChips items={teamFiltered} active={activeFilter} onSelect={setActiveFilter} />
-
-              {visibleItems.length === 0 && activeFilter ? (
-                <EmptyFilter flag={activeFilter} />
-              ) : (
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {groupedByTeam.map(({ team, projects }) => (
-                    <TeamRiskCard key={team.id} team={team} projects={projects} />
-                  ))}
-                </div>
-              )}
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {groupedByTeam.map(({ team, projects }) => (
+                  <TeamRiskCard key={team.id} team={team} projects={projects} />
+                ))}
+              </div>
             </>
           )}
         </>
