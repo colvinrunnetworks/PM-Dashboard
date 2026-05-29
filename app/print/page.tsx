@@ -1022,22 +1022,24 @@ function generateReportHTML(
   const missingDeadline = flat.filter(({ project: p }) => !p.targetDate).length;
   const missingLead     = flat.filter(({ project: p }) => !p.lead).length;
   const stalledCount    = flat.filter(({ project: p }) => p.state === 'started' && p.progress === 0 && p.startDate && daysUntil(p.startDate) < 0).length;
-  const dqItems = [
-    { label: 'missing health status', count: missingHealth,   color: '#6b7280' },
-    { label: 'missing deadline',      count: missingDeadline, color: '#d97706' },
-    { label: 'missing lead',          count: missingLead,     color: '#d97706' },
-    { label: 'stalled (0% progress)', count: stalledCount,    color: '#7c3aed' },
-  ].filter(i => i.count > 0);
+  const dqTiles = [
+    { label: 'Missing Deadline', desc: 'Active project without a target delivery date set', count: missingDeadline, color: '#d97706', bg: '#fffbeb', border: '#fde68a', placeholder: false },
+    { label: 'Missing Lead',     desc: 'No DRI or PM assigned to own the project outcome',  count: missingLead,     color: '#d97706', bg: '#fffbeb', border: '#fde68a', placeholder: false },
+    { label: 'Stalled',          desc: 'In Progress but 0% work logged since the start date', count: stalledCount, color: '#7c3aed', bg: '#faf5ff', border: '#e9d5ff', placeholder: false },
+    { label: 'Health Status',    desc: 'PM check-ins not yet enabled — projects missing health updates will appear here once tracking is active', count: 0, color: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb', placeholder: true },
+  ];
 
-  const dqHtml = dqItems.length === 0
-    ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px;border:1px solid #bbf7d0;background:#f0fdf4;margin-bottom:16px">
-        <span style="font-size:14px">✓</span>
-        <span style="font-size:12px;color:#15803d;font-weight:500">All ${flat.length} active projects have complete data.</span>
-       </div>`
-    : `<div style="padding:10px 16px;border-radius:6px;border:1px solid #fde68a;background:#fffbeb;margin-bottom:16px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#92400e;margin-bottom:8px">Data Quality — ${flat.length} active projects</div>
-        <div style="display:flex;gap:24px;flex-wrap:wrap">${dqItems.map(({ label, count, color }) => `<span style="font-size:12px;color:${color}"><strong>${count}</strong> ${label}</span>`).join('')}</div>
-       </div>`;
+  const dqHtml = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+    ${dqTiles.map(({ label, desc, count, color, bg, border, placeholder }) => `
+    <div style="border-radius:8px;border:1px solid ${border};background:${count > 0 && !placeholder ? bg : '#fafafa'};padding:12px;text-align:center;opacity:${placeholder ? 0.5 : 1}">
+      ${placeholder
+        ? `<div style="font-size:22px;font-weight:700;color:#d1d5db;line-height:1">—</div>`
+        : `<div style="font-size:26px;font-weight:700;color:${count > 0 ? color : '#d1d5db'};line-height:1">${count}</div>`
+      }
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${placeholder ? '#9ca3af' : '#6b7280'};margin-top:6px;line-height:1.3">${label}</div>
+      <div style="font-size:10px;color:#9ca3af;margin-top:4px;line-height:1.4">${desc}</div>
+    </div>`).join('')}
+  </div>`;
 
   const STATUS_PILL_HTML: Record<string, string> = {
     'Overdue':  'background:#fef2f2;color:#dc2626;font-weight:700',
@@ -1076,7 +1078,6 @@ function generateReportHTML(
       ${brCell}
       <td style="padding:6px 8px;font-size:11px;color:${overdue?'#dc2626':'#374151'};white-space:nowrap">${esc(formatDate(project.targetDate))}</td>
       <td style="padding:6px 8px;font-size:11px;color:${project.lead?'#374151':'#d1d5db'};font-style:${project.lead?'normal':'italic'}">${esc(project.lead ? formatLeadName(project.lead.name) : 'No lead')}</td>
-      <td style="padding:6px 8px;font-size:11px;color:#374151">${esc(healthText(project))}</td>
       <td style="padding:6px 8px;font-size:10px;color:#6b7280;max-width:200px">${esc(upcomingMilestones(project))}</td>
     </tr>`;
   }).join('');
@@ -1086,7 +1087,7 @@ function generateReportHTML(
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="background:#f3f4f6">
         <th style="width:4px;padding:0"></th>
-        ${['Team','Project','Status','Burn Rate','Target Date','Lead','PM Health','Milestones (90d)'].map(h => `<th style="padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:left;white-space:nowrap">${esc(h)}</th>`).join('')}
+        ${['Team','Project','Status','Burn Rate','Target Date','Lead','Milestones (90d)'].map(h => `<th style="padding:5px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:left;white-space:nowrap">${esc(h)}</th>`).join('')}
       </tr></thead>
       <tbody>${flatRows}</tbody>
     </table>`;
