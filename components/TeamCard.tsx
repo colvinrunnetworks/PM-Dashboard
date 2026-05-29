@@ -72,17 +72,19 @@ function ProjectRow({ project }: { project: Project }) {
 
 interface TeamCardProps {
   team: Team;
+  stateFilter: Set<string>;
   className?: string;
 }
 
-export function TeamCard({ team, className }: TeamCardProps) {
-  const activeProjects = team.projects.nodes.filter(
-    (p) => p.state !== 'completed' && p.state !== 'cancelled'
+export function TeamCard({ team, stateFilter, className }: TeamCardProps) {
+  const displayProjects = team.projects.nodes.filter(
+    (p) => p.state !== 'cancelled' && stateFilter.has(p.state)
   );
   const completedCount = team.projects.nodes.filter(
     (p) => p.state === 'completed'
   ).length;
   const totalCount = team.projects.nodes.length;
+  const showCompletedFooter = !stateFilter.has('completed') && completedCount > 0;
 
   return (
     <div
@@ -123,9 +125,9 @@ export function TeamCard({ team, className }: TeamCardProps) {
 
       {/* Project rows */}
       <div className="px-4">
-        {activeProjects.length === 0 ? (
+        {displayProjects.length === 0 ? (
           <div className="py-4 text-center text-xs text-slate-600">
-            No active projects
+            No matching projects
           </div>
         ) : (
           <>
@@ -136,7 +138,7 @@ export function TeamCard({ team, className }: TeamCardProps) {
               <span className="w-32 shrink-0 text-right">Target · Lead</span>
             </div>
             <div className="divide-y divide-slate-700/40">
-              {activeProjects.map((project: Project) => (
+              {displayProjects.map((project: Project) => (
                 <ProjectRow key={project.id} project={project} />
               ))}
             </div>
@@ -145,7 +147,7 @@ export function TeamCard({ team, className }: TeamCardProps) {
       </div>
 
       {/* Footer */}
-      {completedCount > 0 && (
+      {showCompletedFooter && (
         <div className="border-t border-slate-700/40 px-4 py-2 text-xs text-slate-600">
           {completedCount} project{completedCount !== 1 ? 's' : ''} completed
         </div>
